@@ -38,6 +38,7 @@ void ATerrainMeshActor::BeginPlay()
 
 void ATerrainMeshActor::Tick(float DeltaTime)
 {
+    
     Super::Tick(DeltaTime);
 
     static float Time = 0.0f;
@@ -51,7 +52,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
         TArray<float> Row;
         for (int32 Y = 0; Y < MapHeight; ++Y)
         {
-            float HeightValue = FMath::Sin(X * 0.1f + Time) * FMath::Cos(Y * 0.1f + Time) * 100.f;
+            float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
             Row.Add(HeightValue);
         }
         HeightMap.Add(Row);

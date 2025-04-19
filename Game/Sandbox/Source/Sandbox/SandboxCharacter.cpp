@@ -11,6 +11,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "MotionControllerComponent.h"
 #include "XRMotionControllerBase.h" // for FXRMotionControllerBase::RightHandSourceId
+#include "GameFramework/CharacterMovementComponent.h"
+
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
 
@@ -108,6 +110,14 @@ void ASandboxCharacter::BeginPlay()
 //////////////////////////////////////////////////////////////////////////
 // Input
 
+void ASandboxCharacter::BeginSprint() {
+	GetCharacterMovement()->MaxWalkSpeed = 1500.f;
+}
+
+void ASandboxCharacter::EndSprint() {
+	GetCharacterMovement()->MaxWalkSpeed = 600.f;
+}
+
 void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent)
 {
 	// set up gameplay key bindings
@@ -136,6 +146,9 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 	PlayerInputComponent->BindAxis("TurnRate", this, &ASandboxCharacter::TurnAtRate);
 	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
 	PlayerInputComponent->BindAxis("LookUpRate", this, &ASandboxCharacter::LookUpAtRate);
+
+	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &ASandboxCharacter::BeginSprint);
+	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &ASandboxCharacter::EndSprint);
 }
 
 void ASandboxCharacter::OnFire()

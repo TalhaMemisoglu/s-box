@@ -25,6 +25,7 @@ Saved/
 Build/
 *.opensdf
 *.opendb
+Content/Assets
 
 # Cooked and packaged builds
 Releases/
