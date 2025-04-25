@@ -30,6 +30,8 @@ public:
 
 	void UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap, float GridSpacing);
 
+    void AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail);
+
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
 

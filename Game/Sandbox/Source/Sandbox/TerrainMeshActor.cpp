@@ -58,7 +58,10 @@ void ATerrainMeshActor::Tick(float DeltaTime)
         HeightMap.Add(Row);
     }
 
-    UpdateMeshFromHeightmap(HeightMap, MapGridSpacing);
+    TArray<TArray<float>> CutoffMap;
+
+    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, 15);
+    UpdateMeshFromHeightmap(CutoffMap, MapGridSpacing);
 
     /* Move the player to the center of terrain only once
     if (!bPlayerCentered)
@@ -72,6 +75,96 @@ void ATerrainMeshActor::Tick(float DeltaTime)
         }
     }
     */
+}
+
+static inline float smoothLerp(float a, float b, float c) {
+    return a + (b - a) * FMath::SmoothStep(0, 1, c);
+}
+
+void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail)
+{
+    int32 InputWidth = HeightMap.Num();
+    int32 InputHeight = HeightMap[0].Num();
+
+    // left part
+    for (int32 X = 0; X < Detail; X++)
+    {
+        TArray<float> Row;
+        Output.Add(Row);
+
+        // left-bottom corner
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(HeightMap[0][0], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y - Detail)) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+
+        // left-middle part
+        for(int32 Y = 0; Y < InputHeight; Y++)
+        {
+            float HeightValue = smoothLerp(CutoffHeight, HeightMap[0][Y], float(X) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+
+        // left-top corner
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(HeightMap[0][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y)) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+    }
+
+    // middle part
+    for (int32 X = 0; X < InputWidth; X++)
+    {
+        TArray<float> Row;
+        Output.Add(Row);
+
+        // middle-bottom part
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][0], ((float)Y) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+
+        // middle-middle part
+        Output.Last().Append(HeightMap[X]);
+
+        // middle-top part
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][InputHeight - 1], ((float)(Detail - Y)) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+    }
+
+    // right part
+    for (int32 X = 0; X < Detail; X++)
+    {
+        TArray<float> Row;
+        Output.Add(Row);
+
+        // right-bottom corner
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][0], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Detail - Y)) / Detail);
+            Output.Last().Add(HeightValue);
+        }
+
+        // right-middle part
+        for(int32 Y = 0; Y < InputHeight; Y++)
+        {
+            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][Y], CutoffHeight, ((float)X) / (Detail));
+            Output.Last().Add(HeightValue);
+        }
+
+        // right-top corner
+        for (int32 Y = 0; Y < Detail; Y++)
+        {
+            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Y)) / Detail);
+            Output.Last().Add(HeightValue);
+        }
+    }
 }
 
 void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap, float GridSpacing)
@@ -88,14 +181,20 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
 
     for (int32 X = 0; X < Width; X++)
     {
+        float ZVPrev = 0;
         for (int32 Y = 0; Y < Height; Y++)
         {
             float Z = HeightMap[X][Y];
             Vertices.Add(FVector(X * GridSpacing, Y * GridSpacing, Z));
-            Normals.Add(FVector(0, 0, 1));
+            //Normals.Add(FVector(0, 0, 1));
+            FVector U = FVector(GridSpacing, 0, Z - (X == 0 ? 0 : HeightMap[X - 1][Y])).GetUnsafeNormal();
+            FVector V = FVector(0, GridSpacing, Z - ZVPrev).GetUnsafeNormal();
+            FVector Normal = FVector::CrossProduct(U, V);
+            Normals.Add(Normal);
             UV0.Add(FVector2D((float)X / Width, (float)Y / Height));
             VertexColors.Add(FColor::White);
-            Tangents.Add(FProcMeshTangent(1, 0, 0));
+            Tangents.Add(FProcMeshTangent(U, false));
+            ZVPrev = Z;
         }
     }
 
