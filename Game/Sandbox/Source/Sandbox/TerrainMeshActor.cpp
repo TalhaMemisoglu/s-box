@@ -9,6 +9,7 @@ ATerrainMeshActor::ATerrainMeshActor()
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
+    ProcMesh->bUseAsyncCooking = false;
 
     //for preview the dynamic map before start the game
     #if WITH_EDITOR
@@ -170,47 +171,79 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
 void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap, float GridSpacing)
 {
     int32 Width = HeightMap.Num();
-    int32 Height = HeightMap[0].Num();
+    int32 Height = HeightMap.IsValidIndex(0) && HeightMap[0].Num() > 0 ? HeightMap[0].Num() : 0; // Check valid index and size
+
+    if (Width <= 1 || Height <= 1) // Need at least 2x2 grid for triangles
+    {
+        // Optional: Log a warning or clear the mesh if dimensions are too small
+        if (ProcMesh && ProcMesh->GetNumSections() > 0) ProcMesh->ClearMeshSection(0);
+        return;
+    }
+
 
     TArray<FVector> Vertices;
-    TArray<int32> Triangles;
+    TArray<int32> Triangles; // Only needed for the first creation
     TArray<FVector> Normals;
     TArray<FVector2D> UV0;
-    TArray<FColor> VertexColors;
+    // TArray<FColor> VertexColors; // Using LinearColor now
+    TArray<FLinearColor> LinearVertexColors;
     TArray<FProcMeshTangent> Tangents;
+
+    // Reserve memory for performance
+    Vertices.Reserve(Width * Height);
+    Normals.Reserve(Width * Height);
+    UV0.Reserve(Width * Height);
+    LinearVertexColors.Reserve(Width * Height);
+    Tangents.Reserve(Width * Height);
+
 
     for (int32 X = 0; X < Width; X++)
     {
-        float ZVPrev = 0;
         for (int32 Y = 0; Y < Height; Y++)
         {
             float Z = HeightMap[X][Y];
             Vertices.Add(FVector(X * GridSpacing, Y * GridSpacing, Z));
-            //Normals.Add(FVector(0, 0, 1));
-            FVector U = FVector(GridSpacing, 0, Z - (X == 0 ? 0 : HeightMap[X - 1][Y])).GetUnsafeNormal();
-            FVector V = FVector(0, GridSpacing, Z - ZVPrev).GetUnsafeNormal();
-            FVector Normal = FVector::CrossProduct(U, V);
-            Normals.Add(Normal);
-            UV0.Add(FVector2D((float)X / Width, (float)Y / Height));
-            VertexColors.Add(FColor::White);
+
+            // Calculate Normals and Tangents (check bounds for neighbors)
+            float Z_NeighborX = (X > 0) ? HeightMap[X - 1][Y] : Z;
+            float Z_NeighborY = (Y > 0) ? HeightMap[X][Y - 1] : Z;
+            FVector U = FVector(GridSpacing, 0, Z - Z_NeighborX).GetSafeNormal(); // Use SafeNormal
+            FVector V = FVector(0, GridSpacing, Z - Z_NeighborY).GetSafeNormal(); // Use SafeNormal
+    FVector Normal = FVector::CrossProduct(U, V);             Normals.Add(Normal);
             Tangents.Add(FProcMeshTangent(U, false));
-            ZVPrev = Z;
+
+            // Calculate UVs based on relative position in the grid
+            UV0.Add(FVector2D(static_cast<float>(X) / (Width > 1 ? Width - 1 : 1),
+                              static_cast<float>(Y) / (Height > 1 ? Height - 1 : 1)));
+            LinearVertexColors.Add(FLinearColor::White);
         }
     }
 
-    for (int32 X = 0; X < Width - 1; X++)
+    // Empty UV arrays for channels we don't use (required by the function signature)
+    TArray<FVector2D> EmptyUVs; // Re-use this for UV1, UV2, UV3
+
+    // Revert to always creating the mesh section
+    if (ProcMesh) // Check if ProcMesh is valid
     {
-        for (int32 Y = 0; Y < Height - 1; Y++)
+        // Ensure Triangles are calculated
+        Triangles.Reset(); // Clear just in case
+        Triangles.Reserve((Width - 1) * (Height - 1) * 6);
+        for (int32 X = 0; X < Width - 1; X++)
         {
-            int32 A = X + Y * Width;
-            int32 B = (X + 1) + Y * Width;
-            int32 C = X + (Y + 1) * Width;
-            int32 D = (X + 1) + (Y + 1) * Width;
-
-            Triangles.Add(A); Triangles.Add(B); Triangles.Add(C);
-            Triangles.Add(B); Triangles.Add(D); Triangles.Add(C);
+            for (int32 Y = 0; Y < Height - 1; Y++)
+            {
+                int32 A = X * Height + Y;
+                int32 B = (X + 1) * Height + Y;
+                int32 C = X * Height + (Y + 1);
+                int32 D = (X + 1) * Height + (Y + 1);
+                if (Vertices.IsValidIndex(A) && Vertices.IsValidIndex(B) && Vertices.IsValidIndex(C) && Vertices.IsValidIndex(D))
+                {
+                   Triangles.Add(A); Triangles.Add(C); Triangles.Add(B);
+                   Triangles.Add(B); Triangles.Add(C); Triangles.Add(D);
+                }
+            }
         }
+        // Always call CreateMeshSection with collision enabled
+        ProcMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, EmptyUVs, EmptyUVs, EmptyUVs, LinearVertexColors, Tangents, true); // bCreateCollision = true
     }
-
-    ProcMesh->CreateMeshSection(0, Vertices, Triangles, Normals, UV0, VertexColors, Tangents, true);
 }

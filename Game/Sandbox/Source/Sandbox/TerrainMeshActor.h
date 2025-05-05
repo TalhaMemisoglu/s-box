@@ -21,6 +21,7 @@ protected:
 	float MapGridSpacing = 20.f;
 
 	bool bPlayerCentered = false; //to move the player once
+	// bool bMeshSectionCreated = false; // Flag to track if section 0 is created
 
 public:
 	// Sets default values for this actor's properties
