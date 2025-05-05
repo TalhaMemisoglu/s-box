@@ -207,8 +207,8 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
             // Calculate Normals and Tangents (check bounds for neighbors)
             float Z_NeighborX = (X > 0) ? HeightMap[X - 1][Y] : Z;
             float Z_NeighborY = (Y > 0) ? HeightMap[X][Y - 1] : Z;
-            FVector U = FVector(GridSpacing, 0, Z - Z_NeighborX).GetSafeNormal(); // Use SafeNormal
-            FVector V = FVector(0, GridSpacing, Z - Z_NeighborY).GetSafeNormal(); // Use SafeNormal
+            FVector U = FVector(15, 0, Z - Z_NeighborX).GetSafeNormal(); // Use SafeNormal
+            FVector V = FVector(0, 15, Z - Z_NeighborY).GetSafeNormal(); // Use SafeNormal
     FVector Normal = FVector::CrossProduct(U, V);             Normals.Add(Normal);
             Tangents.Add(FProcMeshTangent(U, false));
 
