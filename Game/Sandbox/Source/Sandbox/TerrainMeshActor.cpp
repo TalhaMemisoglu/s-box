@@ -9,8 +9,11 @@ ATerrainMeshActor::ATerrainMeshActor()
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
-    ProcMesh->bUseAsyncCooking = true;
+    ProcMesh->bUseAsyncCooking = false;
 
+    //SetMapSize(100, 100, 15, 20.0f, 1.0f);
+
+    /*
     //for preview the dynamic map before start the game
     #if WITH_EDITOR
         if (!IsRunningGame())
@@ -30,11 +33,60 @@ ATerrainMeshActor::ATerrainMeshActor()
             UpdateMeshFromHeightmap(PreviewMap, MapGridSpacing);
         }
     #endif
+    */
 }
 
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
+    SetMapSize(100, 100, 15, 20.0f, 0.2f);
+}
+
+void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
+    MapWidth = Width + 1;
+    MapHeight = Height + 1;
+    MapSmootheningOffset = SmootheningOffset;
+    MapGridSpacing = GridSpacing;
+    MapUVScale = UVScale;
+    MapWidthAbsolute = MapWidth + MapSmootheningOffset * 2;
+    MapHeightAbsolute = MapHeight + MapSmootheningOffset * 2;
+
+    Vertices.SetNum(MapWidthAbsolute * MapHeightAbsolute);
+    Normals.SetNum(MapWidthAbsolute * MapHeightAbsolute);
+    Tangents.SetNum(MapWidthAbsolute * MapHeightAbsolute);
+
+    TArray<FVector2D> UV;
+    UV.SetNum(MapWidthAbsolute * MapHeightAbsolute);
+
+    TArray<int32> Triangles;
+    Triangles.SetNum(6 * (MapWidthAbsolute - 1) * (MapHeightAbsolute - 1));
+
+    for(int32 Y = 0; Y < MapHeightAbsolute; ++Y)
+    {
+        for(int32 X = 0; X < MapWidthAbsolute; ++X)
+        {
+            Vertices[Y + MapWidthAbsolute * X] = FVector(Y - 0.5f * MapHeightAbsolute, X - 0.5f * MapWidthAbsolute, 0) * MapGridSpacing;
+            Normals[Y + MapWidthAbsolute * X] = FVector::UpVector;
+            UV[Y + MapWidthAbsolute * X] = FVector2D(Y, X) * MapUVScale;
+            Tangents[X + Y * MapWidthAbsolute] = FProcMeshTangent(FVector(1, 0, 0), false);
+        }
+    }
+
+    for(int32 Y = 0; Y < MapHeightAbsolute - 1; ++Y)
+    {
+        for(int32 X = 0; X < MapWidthAbsolute - 1; ++X)
+        {
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 0] = (Y + 0) + (X + 0) * MapWidthAbsolute;
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 1] = (Y + 0) + (X + 1) * MapWidthAbsolute;
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 2] = (Y + 1) + (X + 1) * MapWidthAbsolute;
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 3] = (Y + 0) + (X + 0) * MapWidthAbsolute;
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 4] = (Y + 1) + (X + 1) * MapWidthAbsolute;
+            Triangles[6 * (Y + X * (MapWidthAbsolute - 1)) + 5] = (Y + 1) + (X + 0) * MapWidthAbsolute;
+        }
+    }
+
+    ProcMesh->CreateMeshSection(0, Vertices, Triangles, Normals, UV, TArray<FColor>(), TArray<FProcMeshTangent>(), true);
+    //ProcMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
 }
 
 void ATerrainMeshActor::Tick(float DeltaTime)
@@ -61,8 +113,8 @@ void ATerrainMeshActor::Tick(float DeltaTime)
 
     TArray<TArray<float>> CutoffMap;
 
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, 15);
-    UpdateMeshFromHeightmap(CutoffMap, MapGridSpacing);
+    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
+    UpdateMeshFromHeightmap(CutoffMap);
 
     /* Move the player to the center of terrain only once
     if (!bPlayerCentered)
@@ -168,57 +220,36 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
     }
 }
 
-void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap, float GridSpacing)
+void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap)
 {
     int32 Width = HeightMap.Num();
     int32 Height = HeightMap.IsValidIndex(0) && HeightMap[0].Num() > 0 ? HeightMap[0].Num() : 0; // Check valid index and size
 
-    if (Width <= 1 || Height <= 1) // Need at least 2x2 grid for triangles
+    if (Width != MapWidthAbsolute || MapHeightAbsolute <= 1)
     {
-        // Optional: Log a warning or clear the mesh if dimensions are too small
-        if (ProcMesh && ProcMesh->GetNumSections() > 0) ProcMesh->ClearMeshSection(0);
         return;
     }
-
-
-    TArray<FVector> Vertices;
-    TArray<int32> Triangles; // Only needed for the first creation
-    TArray<FVector> Normals;
-    TArray<FVector2D> UV0;
-    // TArray<FColor> VertexColors; // Using LinearColor now
-    TArray<FLinearColor> LinearVertexColors;
-    TArray<FProcMeshTangent> Tangents;
-
-    // Reserve memory for performance
-    Vertices.Reserve(Width * Height);
-    Normals.Reserve(Width * Height);
-    UV0.Reserve(Width * Height);
-    LinearVertexColors.Reserve(Width * Height);
-    Tangents.Reserve(Width * Height);
-
 
     for (int32 X = 0; X < Width; X++)
     {
         for (int32 Y = 0; Y < Height; Y++)
         {
             float Z = HeightMap[X][Y];
-            Vertices.Add(FVector(X * GridSpacing, Y * GridSpacing, Z));
+            Vertices[X + Y * MapWidthAbsolute].Z = Z;
 
             // Calculate Normals and Tangents (check bounds for neighbors)
             float Z_NeighborX = (X > 0) ? HeightMap[X - 1][Y] : Z;
             float Z_NeighborY = (Y > 0) ? HeightMap[X][Y - 1] : Z;
-            FVector U = FVector(15, 0, Z - Z_NeighborX).GetSafeNormal(); // Use SafeNormal
-            FVector V = FVector(0, 15, Z - Z_NeighborY).GetSafeNormal(); // Use SafeNormal
-    FVector Normal = FVector::CrossProduct(U, V);             Normals.Add(Normal);
-            Tangents.Add(FProcMeshTangent(U, false));
-
-            // Calculate UVs based on relative position in the grid
-            UV0.Add(FVector2D(static_cast<float>(X) / (Width > 1 ? Width - 1 : 1),
-                              static_cast<float>(Y) / (Height > 1 ? Height - 1 : 1)));
-            LinearVertexColors.Add(FLinearColor::White);
+            FVector U = FVector(15, 0, Z - Z_NeighborX).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing
+            FVector V = FVector(0, 15, Z - Z_NeighborY).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing    
+            Normals[X + Y * MapWidthAbsolute] = FVector::CrossProduct(U, V);
+            Tangents[X + Y * MapWidthAbsolute] = FProcMeshTangent(U, false);
         }
     }
 
+    ProcMesh->UpdateMeshSection(0, Vertices, Normals, TArray<FVector2D>(), TArray<FColor>(), Tangents);
+
+    /*
     // Empty UV arrays for channels we don't use (required by the function signature)
     TArray<FVector2D> EmptyUVs; // Re-use this for UV1, UV2, UV3
 
@@ -246,4 +277,5 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
         // Always call CreateMeshSection with collision enabled
         ProcMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, EmptyUVs, EmptyUVs, EmptyUVs, LinearVertexColors, Tangents, true); // bCreateCollision = true
     }
+    */
 }
