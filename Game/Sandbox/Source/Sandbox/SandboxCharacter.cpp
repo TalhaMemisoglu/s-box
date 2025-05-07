@@ -12,6 +12,8 @@
 #include "MotionControllerComponent.h"
 #include "XRMotionControllerBase.h" // for FXRMotionControllerBase::RightHandSourceId
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/TextBlock.h"
 
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
@@ -91,6 +93,19 @@ void ASandboxCharacter::BeginPlay()
 	// Call the base class  
 	Super::BeginPlay();
 
+	//For Health
+	CurrentHealth = MaxHealth;
+
+	if (HealthBarWidgetClass)
+	{
+		HealthBarWidget = CreateWidget<UUserWidget>(GetWorld(), HealthBarWidgetClass);
+		if (HealthBarWidget)
+		{
+			HealthBarWidget->AddToViewport();
+			UpdateHealthText(); // custom function we'll define below
+		}
+	}
+
 	//Attach gun mesh component to Skeleton, doing it here because the skeleton is not yet created in the constructor
 	FP_Gun->AttachToComponent(Mesh1P, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), TEXT("GripPoint"));
 
@@ -149,6 +164,18 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 
 	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &ASandboxCharacter::BeginSprint);
 	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &ASandboxCharacter::EndSprint);
+}
+
+void ASandboxCharacter::UpdateHealthText()
+{
+	if (!HealthBarWidget) return;
+
+	UTextBlock* HealthTextBlock = Cast<UTextBlock>(HealthBarWidget->GetWidgetFromName(TEXT("HealthBar")));
+	if (HealthTextBlock)
+	{
+		FString HealthString = FString::Printf(TEXT("%.0f / %.0f"), CurrentHealth, MaxHealth);
+		HealthTextBlock->SetText(FText::FromString(HealthString));
+	}
 }
 
 void ASandboxCharacter::OnFire()
