@@ -9,7 +9,7 @@ ATerrainMeshActor::ATerrainMeshActor()
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
-    ProcMesh->bUseAsyncCooking = false;
+    ProcMesh->bUseAsyncCooking = true;
 
     //for preview the dynamic map before start the game
     #if WITH_EDITOR
