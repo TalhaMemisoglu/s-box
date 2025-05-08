@@ -4,7 +4,7 @@
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
 
-ATerrainMeshActor::ATerrainMeshActor()
+ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.txt")
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
@@ -36,10 +36,59 @@ ATerrainMeshActor::ATerrainMeshActor()
     */
 }
 
+void ATerrainMeshActor::StartWatcher() {
+    std::mutex cout_mutex;
+    watcher.start([&cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
+        auto now = std::chrono::system_clock::now();
+        auto now_time = std::chrono::system_clock::to_time_t(now);
+
+        std::lock_guard<std::mutex> lock(cout_mutex);
+
+        //std::cout << std::string(50, '-') << std::endl;
+        //std::cout << ctime(&now_time);
+
+        FString UEFileToWatch1 = FString(ctime(&now_time));
+
+        UE_LOG(LogTemp, Display, TEXT("Time: %s"), *UEFileToWatch1);
+
+        switch (status) {
+            case FileStatus::FirstTime:
+                //std::cout << "Initial file read:" << std::endl;
+                break;
+            case FileStatus::Modified:
+                //std::cout << "File was modified:" << std::endl;
+                break;
+            case FileStatus::Deleted:
+                //std::cout << "File was deleted." << std::endl;
+                //std::cout << "Exiting..." << std::endl;
+                exit(0);
+        }
+
+        if (status != FileStatus::Deleted) {
+
+            /* ************************************************************ */
+            /*  TODO: This place will be changed to run with unreal engine  */
+            /*  It may need to use some conditional variables etc.          */
+            /* ************************************************************ */
+
+            //std::cout << "Content:" << std::endl;
+            //std::cout << content << std::endl;
+
+            FString UEFileToWatch = FString(content.c_str());
+
+            UE_LOG(LogTemp, Display, TEXT("Content: %s"), *UEFileToWatch);
+        }
+        //std::cout << std::string(50, '-') << std::endl;
+        });
+
+}
+
+
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
+    StartWatcher();
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
