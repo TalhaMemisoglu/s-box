@@ -344,6 +344,21 @@ Sandbox-Linux-Test:
 Sandbox:
 	 $(PROJECTBUILD) Sandbox Linux Development  -project="$(GAMEPROJECTFILE)" $(ARGS)
 
+SandboxServer-Linux-Debug:
+	 $(PROJECTBUILD) SandboxServer Linux Debug  -project="$(GAMEPROJECTFILE)" $(ARGS)
+
+SandboxServer-Linux-DebugGame:
+	 $(PROJECTBUILD) SandboxServer Linux DebugGame  -project="$(GAMEPROJECTFILE)" $(ARGS)
+
+SandboxServer-Linux-Shipping:
+	 $(PROJECTBUILD) SandboxServer Linux Shipping  -project="$(GAMEPROJECTFILE)" $(ARGS)
+
+SandboxServer-Linux-Test:
+	 $(PROJECTBUILD) SandboxServer Linux Test  -project="$(GAMEPROJECTFILE)" $(ARGS)
+
+SandboxServer:
+	 $(PROJECTBUILD) SandboxServer Linux Development  -project="$(GAMEPROJECTFILE)" $(ARGS)
+
 SandboxEditor-Linux-Debug:
 	 $(PROJECTBUILD) SandboxEditor Linux Debug  -project="$(GAMEPROJECTFILE)" $(ARGS)
 
