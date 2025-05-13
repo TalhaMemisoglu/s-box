@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "FileWatcher.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "ProceduralMeshComponent.h"
@@ -14,6 +15,8 @@ class SANDBOX_API ATerrainMeshActor : public AActor
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	FileWatcher watcher;
 
 	//for testing dynamic map
 	int32 MapWidth;
@@ -57,6 +60,7 @@ public:
     void SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale);
 
     void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
+	void StartWatcher();
 
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
