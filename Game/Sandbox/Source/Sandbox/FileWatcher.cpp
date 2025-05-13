@@ -47,7 +47,7 @@ FileWatcher::FileWatcher()
             lock_guard<mutex> lock(cout_mutex_);
             //cout << "File not found or is not a regular file: " << filepath_ << endl;
             //cout << "Exiting..." << endl;
-            exit(0);
+            //exit(0);
         }
     }
 
