@@ -3,6 +3,7 @@
 #include "GameFramework/Character.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include "Net/UnrealNetwork.h"
 
 ATerrainMeshActor::ATerrainMeshActor()
 {
@@ -10,6 +11,9 @@ ATerrainMeshActor::ATerrainMeshActor()
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
     ProcMesh->bUseAsyncCooking = false;
+
+    bReplicates = true;
+    CheatTime = 0.0f;
 
     //SetMapSize(100, 100, 15, 20.0f, 1.0f);
 
@@ -91,30 +95,33 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 
 void ATerrainMeshActor::Tick(float DeltaTime)
 {
-    
     Super::Tick(DeltaTime);
-
-    static float Time = 0.0f;
-    Time += DeltaTime;
-
-    // Generate animated heightmap for testing
-    TArray<TArray<float>> HeightMap;
-
-    for (int32 X = 0; X < MapWidth; ++X)
-    {
-        TArray<float> Row;
-        for (int32 Y = 0; Y < MapHeight; ++Y)
-        {
-            float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
-            Row.Add(HeightValue);
-        }
-        HeightMap.Add(Row);
+    if(HasAuthority()) {
+        CheatTime += DeltaTime;
     }
+    
+    if(HasAuthority() || true) {
 
-    TArray<TArray<float>> CutoffMap;
+        //static float Time = 0.0f;
+        //Time += DeltaTime;
 
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
-    UpdateMeshFromHeightmap(CutoffMap);
+        float Time = CheatTime;
+
+        // Generate animated heightmap for testing
+        TArray<float> HeightMapNonSmooth;
+
+        for (int32 X = 0; X < MapWidth; ++X)
+        {
+            for (int32 Y = 0; Y < MapHeight; ++Y)
+            {
+                float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
+                HeightMapNonSmooth.Add(HeightValue);
+            }
+        }
+
+        AddCutoffRegion(HeightMapNonSmooth, HeightMap, -120.0f, MapSmootheningOffset);
+        UpdateMeshFromHeightmap();
+    }
 
     /* Move the player to the center of terrain only once
     if (!bPlayerCentered)
@@ -130,120 +137,119 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     */
 }
 
+void ATerrainMeshActor::GetLifetimeReplicatedProps(TArray <FLifetimeProperty> & OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+    //DOREPLIFETIME(ATerrainMeshActor, HeightMap);
+    DOREPLIFETIME(ATerrainMeshActor, CheatTime);
+}
+
+void ATerrainMeshActor::OnRepHeightMap() {
+    UpdateMeshFromHeightmap();
+}
+
+void ATerrainMeshActor::OnRepCheatTime() {
+}
+
 static inline float smoothLerp(float a, float b, float c) {
     return a + (b - a) * FMath::SmoothStep(0, 1, c);
 }
 
-void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail)
+void ATerrainMeshActor::AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail)
 {
-    int32 InputWidth = HeightMap.Num();
-    int32 InputHeight = HeightMap[0].Num();
+    Output.Reset(Output.Num());
 
     // left part
     for (int32 X = 0; X < Detail; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // left-bottom corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[0][0], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y - Detail)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[0], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y - Detail)) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // left-middle part
-        for(int32 Y = 0; Y < InputHeight; Y++)
+        for(int32 Y = 0; Y < MapHeight; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[0][Y], float(X) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[Y], float(X) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // left-top corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[0][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[MapHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y)) / (Detail));
+            Output.Add(HeightValue);
         }
     }
 
     // middle part
-    for (int32 X = 0; X < InputWidth; X++)
+    for (int32 X = 0; X < MapWidth; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // middle-bottom part
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][0], ((float)Y) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[X * MapHeight], ((float)Y) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // middle-middle part
-        Output.Last().Append(HeightMap[X]);
+        for (int32 Y = 0; Y < MapHeight; ++Y) {
+            Output.Add(Input[X * MapHeight + Y]);
+        }
 
         // middle-top part
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][InputHeight - 1], ((float)(Detail - Y)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[X * MapHeight + MapHeight - 1], ((float)(Detail - Y)) / (Detail));
+            Output.Add(HeightValue);
         }
     }
 
     // right part
     for (int32 X = 0; X < Detail; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // right-bottom corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][0], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Detail - Y)) / Detail);
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Detail - Y)) / Detail);
+            Output.Add(HeightValue);
         }
 
         // right-middle part
-        for(int32 Y = 0; Y < InputHeight; Y++)
+        for(int32 Y = 0; Y < MapHeight; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][Y], CutoffHeight, ((float)X) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight + Y], CutoffHeight, ((float)X) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // right-top corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Y)) / Detail);
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight + MapHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Y)) / Detail);
+            Output.Add(HeightValue);
         }
     }
 }
 
-void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap)
+void ATerrainMeshActor::UpdateMeshFromHeightmap()
 {
-    int32 Width = HeightMap.Num();
-    int32 Height = HeightMap.IsValidIndex(0) && HeightMap[0].Num() > 0 ? HeightMap[0].Num() : 0; // Check valid index and size
-
-    if (Width != MapWidthAbsolute || MapHeightAbsolute <= 1)
+    for (int32 X = 0; X < MapWidthAbsolute; X++)
     {
-        return;
-    }
-
-    for (int32 X = 0; X < Width; X++)
-    {
-        for (int32 Y = 0; Y < Height; Y++)
+        for (int32 Y = 0; Y < MapHeightAbsolute; Y++)
         {
-            float Z = HeightMap[X][Y];
-            Vertices[X + Y * MapWidthAbsolute].Z = Z;
+            float Z = HeightMap[X * MapHeightAbsolute + Y];
+            Vertices[X * MapHeightAbsolute + Y].Z = Z;
 
             // Calculate Normals and Tangents (check bounds for neighbors)
-            float Z_NeighborX = (X > 0) ? HeightMap[X - 1][Y] : Z;
-            float Z_NeighborY = (Y > 0) ? HeightMap[X][Y - 1] : Z;
+            float Z_NeighborX = (X > 0) ? HeightMap[X * MapHeightAbsolute - 1 + Y] : Z;
+            float Z_NeighborY = (Y > 0) ? HeightMap[X * MapHeightAbsolute + Y - 1] : Z;
             FVector U = FVector(15, 0, Z - Z_NeighborX).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing
             FVector V = FVector(0, 15, Z - Z_NeighborY).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing    
-            Normals[X + Y * MapWidthAbsolute] = FVector::CrossProduct(U, V);
-            Tangents[X + Y * MapWidthAbsolute] = FProcMeshTangent(U, false);
+            Normals[X * MapHeightAbsolute + Y] = FVector::CrossProduct(U, V);
+            Tangents[X * MapHeightAbsolute + Y] = FProcMeshTangent(U, false);
         }
     }
 
