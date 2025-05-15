@@ -3,8 +3,11 @@
 #include "GameFramework/Character.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include <iostream>
+#include <fstream>
 
-ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.txt")
+
+ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\Musab\\Desktop\\slope.bin")
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
@@ -36,9 +39,54 @@ ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.
     */
 }
 
+void ATerrainMeshActor::readFileContent() {
+    UE_LOG(LogTemp, Display, TEXT("Reading file: C:\\Users\\Musab\\Desktop\\slope.bin"));
+    std::ifstream inFile("C:\\Users\\Musab\\Desktop\\slope.bin", std::ios::binary);
+    float matrix[100][100];
+    if (!inFile) {
+        // std::cerr << "Failed to open file for reading: C:\\Users\\Musab\\Desktop\\slope.bin" std::endl;
+        return;
+    }
+    
+    // Read the entire 2D array from the file at once
+    inFile.read(reinterpret_cast<char*>(matrix), 100 * 100 * sizeof(float));
+    
+    inFile.close();
+    // std::cout << "Array read from C:\\Users\\Musab\\Desktop\\slope.bin" << std::endl;
+
+    // Print first 5x5 elements to verify
+    for(int i = 0; i < 5; i++) {
+        std::string row;
+        for(int j = 0; j < 5; j++) {
+            row += std::to_string(matrix[i][j]) + " ";
+        }
+        UE_LOG(LogTemp, Display, TEXT("Row: %s"), *FString(row.c_str()));
+    }
+   /* TODO: ✅ */
+
+    TArray<TArray<float>> HeightMap;
+
+    for (int32 X = 0; X < MapWidth; ++X)
+    {
+        TArray<float> Row;
+        for (int32 Y = 0; Y < MapHeight; ++Y)
+        {
+            Row.Add(matrix[Y][X]);
+        }
+        HeightMap.Add(Row);
+    }
+
+    TArray<TArray<float>> CutoffMap;
+
+    //UE_LOG(LogTemp, Display, TEXT("Çağırdım"));
+
+    //AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
+    //UpdateMeshFromHeightmap(HeightMap);
+}
+
 void ATerrainMeshActor::StartWatcher() {
     std::mutex cout_mutex;
-    watcher.start([&cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
+    watcher.start([this, &cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
         auto now = std::chrono::system_clock::now();
         auto now_time = std::chrono::system_clock::to_time_t(now);
 
@@ -73,6 +121,8 @@ void ATerrainMeshActor::StartWatcher() {
 
             //std::cout << "Content:" << std::endl;
             //std::cout << content << std::endl;
+
+            this->readFileContent();
 
             FString UEFileToWatch = FString(content.c_str());
 
@@ -162,8 +212,8 @@ void ATerrainMeshActor::Tick(float DeltaTime)
 
     TArray<TArray<float>> CutoffMap;
 
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
-    UpdateMeshFromHeightmap(CutoffMap);
+    /* AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
+    UpdateMeshFromHeightmap(CutoffMap); TODO: For now*/
 
     /* Move the player to the center of terrain only once
     if (!bPlayerCentered)
@@ -185,9 +235,11 @@ static inline float smoothLerp(float a, float b, float c) {
 
 void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail)
 {
+    UE_LOG(LogTemp, Display, TEXT("Hi there"));
     int32 InputWidth = HeightMap.Num();
     int32 InputHeight = HeightMap[0].Num();
 
+    UE_LOG(LogTemp, Display, TEXT("InputWidth: %d, InputHeight: %d"), InputWidth, InputHeight);
     // left part
     for (int32 X = 0; X < Detail; X++)
     {
@@ -216,6 +268,11 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
         }
     }
 
+    std::ofstream outFile1("C:\\Users\\Musab\\Desktop\\log.txt");
+    outFile1 << "MIDDLE" << std::endl;
+    outFile1.close();
+    UE_LOG(LogTemp, Display, TEXT("MIDDLE"));
+
     // middle part
     for (int32 X = 0; X < InputWidth; X++)
     {
@@ -239,6 +296,10 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
             Output.Last().Add(HeightValue);
         }
     }
+    std::ofstream outFile2("C:\\Users\\Musab\\Desktop\\log.txt");
+    outFile2 << "RIGHT" << std::endl;
+    outFile2.close();
+    UE_LOG(LogTemp, Display, TEXT("RIGHT"));
 
     // right part
     for (int32 X = 0; X < Detail; X++)
@@ -267,6 +328,9 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
             Output.Last().Add(HeightValue);
         }
     }
+
+    UE_LOG(LogTemp, Display, TEXT("DONE"));
+
 }
 
 void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap)
@@ -274,8 +338,10 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
     int32 Width = HeightMap.Num();
     int32 Height = HeightMap.IsValidIndex(0) && HeightMap[0].Num() > 0 ? HeightMap[0].Num() : 0; // Check valid index and size
 
+    UE_LOG(LogTemp, Display, TEXT("Gardaş geldik"), Width, MapWidthAbsolute, MapHeightAbsolute);
     if (Width != MapWidthAbsolute || MapHeightAbsolute <= 1)
     {
+        UE_LOG(LogTemp, Display, TEXT("Width: %d, MapWidthAbsolute: %d, MapHeightAbsolute: %d"), Width, MapWidthAbsolute, MapHeightAbsolute);
         return;
     }
 
