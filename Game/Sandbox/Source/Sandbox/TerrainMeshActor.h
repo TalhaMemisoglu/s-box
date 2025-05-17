@@ -37,6 +37,8 @@ protected:
     UPROPERTY(ReplicatedUsing=OnRepCheatTime)
     float CheatTime;
 
+    float CheatTimeMax;
+
     TArray<FVector> Vertices;
     TArray<FVector> Normals;
     TArray<FProcMeshTangent> Tangents;

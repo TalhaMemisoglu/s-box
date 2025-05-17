@@ -14,6 +14,7 @@ ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.
 
     bReplicates = true;
     CheatTime = 0.0f;
+    CheatTimeMax = 0.0f;
 
     //SetMapSize(100, 100, 15, 20.0f, 1.0f);
 
@@ -147,6 +148,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
     if(HasAuthority()) {
         CheatTime += DeltaTime;
+        CheatTimeMax = CheatTime;
     }
     
     if(HasAuthority() || true) {
@@ -154,7 +156,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
         //static float Time = 0.0f;
         //Time += DeltaTime;
 
-        float Time = CheatTime;
+        float Time = CheatTimeMax;
 
         // Generate animated heightmap for testing
         TArray<float> HeightMapNonSmooth;
@@ -199,6 +201,7 @@ void ATerrainMeshActor::OnRepHeightMap() {
 }
 
 void ATerrainMeshActor::OnRepCheatTime() {
+    CheatTimeMax = CheatTime > CheatTimeMax ? CheatTime : CheatTimeMax;
 }
 
 static inline float smoothLerp(float a, float b, float c) {
