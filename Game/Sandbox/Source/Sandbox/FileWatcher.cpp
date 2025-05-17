@@ -14,18 +14,6 @@
 
 using namespace std;
 
-// Function to read file content
-string FileWatcher::readFileContent(const string& filepath) {
-    ifstream file(filepath);
-    if (!file.is_open()) {
-        return "Cannot open file for reading";
-    }
-
-    stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
-
 FileWatcher::FileWatcher()
     : filepath_(""), running_(false) {
 }
@@ -77,17 +65,14 @@ FileWatcher::FileWatcher()
             UE_LOG(LogTemp, Display, TEXT("Thread Began"));
             bool file_existed = std::filesystem::exists(filepath_);
 
-            // Initial read if file exists /* TODO: Anlamsız ama başarılı */
-            /* if (file_existed) {
-                string content = readFileContent(filepath_);
-                callback(filepath_, FileStatus::FirstTime, content);
-            } */
+            //Initial read if file exists /* TODO: Anlamsız ama başarılı */
+            if (file_existed) {
+                this_thread::sleep_for(delay_);
+                callback(filepath_, FileStatus::FirstTime, "");
+            }
 
-            FString UEFileToWatch3 = FString("Newww " + running_);
-
-            UE_LOG(LogTemp, Display, TEXT("Before loop: %s"), *UEFileToWatch3);
             while (running_) {
-                UE_LOG(LogTemp, Display, TEXT("hTread Loop"));
+                UE_LOG(LogTemp, Display, TEXT("Tread Loop"));
 
                 // Check if file exists
                 bool exists_now = std::filesystem::exists(filepath_);
