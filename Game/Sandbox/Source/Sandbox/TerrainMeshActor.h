@@ -47,6 +47,8 @@ public:
     void AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail);
 	void StartWatcher();
 
+	void readFileContent();
+
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
 
