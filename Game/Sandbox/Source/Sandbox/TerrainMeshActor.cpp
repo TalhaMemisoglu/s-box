@@ -6,8 +6,10 @@
 #include <iostream>
 #include <fstream>
 
+const std::string logFilePath = "C:\\Users\\Musab\\Desktop\\log.txt";
+const std::string filepath = "C:\\Users\\Musab\\Desktop\\slope.bin";
 
-ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\Musab\\Desktop\\slope.bin")
+ATerrainMeshActor::ATerrainMeshActor(): watcher(filepath)
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
@@ -40,11 +42,10 @@ ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\Musab\\Desktop\\slop
 }
 
 void ATerrainMeshActor::readFileContent() {
-    UE_LOG(LogTemp, Display, TEXT("Reading file: C:\\Users\\Musab\\Desktop\\slope.bin"));
-    std::ifstream inFile("C:\\Users\\Musab\\Desktop\\slope.bin", std::ios::binary);
+    UE_LOG(LogTemp, Display, TEXT("Reading file: %s"), *FString(filepath.c_str()));
+    std::ifstream inFile(filepath, std::ios::binary);
     float matrix[100][100];
     if (!inFile) {
-        // std::cerr << "Failed to open file for reading: C:\\Users\\Musab\\Desktop\\slope.bin" std::endl;
         return;
     }
     
@@ -52,7 +53,6 @@ void ATerrainMeshActor::readFileContent() {
     inFile.read(reinterpret_cast<char*>(matrix), 100 * 100 * sizeof(float));
     
     inFile.close();
-    // std::cout << "Array read from C:\\Users\\Musab\\Desktop\\slope.bin" << std::endl;
 
     // Print first 5x5 elements to verify
     for(int i = 0; i < 5; i++) {
@@ -268,7 +268,7 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
         }
     }
 
-    std::ofstream outFile1("C:\\Users\\Musab\\Desktop\\log.txt");
+    std::ofstream outFile1(logFilePath);
     outFile1 << "MIDDLE" << std::endl;
     outFile1.close();
     UE_LOG(LogTemp, Display, TEXT("MIDDLE"));
@@ -296,7 +296,7 @@ void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, 
             Output.Last().Add(HeightValue);
         }
     }
-    std::ofstream outFile2("C:\\Users\\Musab\\Desktop\\log.txt");
+    std::ofstream outFile2(logFilePath);
     outFile2 << "RIGHT" << std::endl;
     outFile2.close();
     UE_LOG(LogTemp, Display, TEXT("RIGHT"));
