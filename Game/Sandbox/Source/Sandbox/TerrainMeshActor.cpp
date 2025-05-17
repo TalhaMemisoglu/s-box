@@ -4,8 +4,13 @@
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
 #include "Net/UnrealNetwork.h"
+#include <iostream>
+#include <fstream>
 
-ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.txt")
+const std::string logFilePath = "C:\\Users\\talha\\Desktop\\log.txt";
+const std::string filepath = "C:\\Users\\talha\\Desktop\\slope.bin";
+
+ATerrainMeshActor::ATerrainMeshActor(): watcher(filepath)
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
@@ -15,79 +20,57 @@ ATerrainMeshActor::ATerrainMeshActor(): watcher("C:\\Users\\talha\\Desktop\\map.
     bReplicates = true;
     CheatTime = 0.0f;
     CheatTimeMax = 0.0f;
+}
 
-    //SetMapSize(100, 100, 15, 20.0f, 1.0f);
+void ATerrainMeshActor::readFileContent() {
+    std::ifstream inFile(filepath, std::ios::binary);
 
-    /*
-    //for preview the dynamic map before start the game
-    #if WITH_EDITOR
-        if (!IsRunningGame())
+    float matrix[100][100];
+    if (!inFile) {
+        return;
+    }
+    
+    // Read the entire 2D array from the file at once
+    inFile.read(reinterpret_cast<char*>(matrix), 100 * 100 * sizeof(float));
+    
+    inFile.close();
+
+    TArray<TArray<float>> HeightMap;
+    for (int32 X = 0; X < MapWidth; X++)
+    {
+        TArray<float> Row;
+        for (int32 Y = 0; Y < MapHeight; Y++)
         {
-            TArray<TArray<float>> PreviewMap;
-            for (int32 X = 0; X < MapWidth; ++X)
-            {
-                TArray<float> Row;
-                for (int32 Y = 0; Y < MapHeight; ++Y)
-                {
-                    float Z = FMath::Sin(X * 0.1f) * FMath::Cos(Y * 0.1f) * 100.f;
-                    Row.Add(Z);
-                }
-                PreviewMap.Add(Row);
-            }
-
-            UpdateMeshFromHeightmap(PreviewMap, MapGridSpacing);
+            Row.Add(matrix[Y][X]);
         }
-    #endif
-    */
+        HeightMap.Add(Row);
+    }
+
+    TArray<TArray<float>> CutoffMap;
+
+
+    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
+    UpdateMeshFromHeightmap(CutoffMap);
 }
 
 void ATerrainMeshActor::StartWatcher() {
     std::mutex cout_mutex;
-    watcher.start([&cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
+    watcher.start([this, &cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
         auto now = std::chrono::system_clock::now();
         auto now_time = std::chrono::system_clock::to_time_t(now);
 
         std::lock_guard<std::mutex> lock(cout_mutex);
 
-        //std::cout << std::string(50, '-') << std::endl;
-        //std::cout << ctime(&now_time);
-
         FString UEFileToWatch1 = FString(ctime(&now_time));
 
         UE_LOG(LogTemp, Display, TEXT("Time: %s"), *UEFileToWatch1);
 
-        switch (status) {
-            case FileStatus::FirstTime:
-                //std::cout << "Initial file read:" << std::endl;
-                break;
-            case FileStatus::Modified:
-                //std::cout << "File was modified:" << std::endl;
-                break;
-            case FileStatus::Deleted:
-                //std::cout << "File was deleted." << std::endl;
-                //std::cout << "Exiting..." << std::endl;
-                exit(0);
-        }
-
         if (status != FileStatus::Deleted) {
-
-            /* ************************************************************ */
-            /*  TODO: This place will be changed to run with unreal engine  */
-            /*  It may need to use some conditional variables etc.          */
-            /* ************************************************************ */
-
-            //std::cout << "Content:" << std::endl;
-            //std::cout << content << std::endl;
-
-            FString UEFileToWatch = FString(content.c_str());
-
-            UE_LOG(LogTemp, Display, TEXT("Content: %s"), *UEFileToWatch);
+            this->readFileContent();
         }
-        //std::cout << std::string(50, '-') << std::endl;
-        });
+    });
 
 }
-
 
 void ATerrainMeshActor::BeginPlay()
 {
@@ -97,8 +80,8 @@ void ATerrainMeshActor::BeginPlay()
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
-    MapWidth = Width + 1;
-    MapHeight = Height + 1;
+    MapWidth = Width;
+    MapHeight = Height;
     MapSmootheningOffset = SmootheningOffset;
     MapGridSpacing = GridSpacing;
     MapUVScale = UVScale;
@@ -173,19 +156,6 @@ void ATerrainMeshActor::Tick(float DeltaTime)
         AddCutoffRegion(HeightMapNonSmooth, HeightMap, -120.0f, MapSmootheningOffset);
         UpdateMeshFromHeightmap();
     }
-
-    /* Move the player to the center of terrain only once
-    if (!bPlayerCentered)
-    {
-        ACharacter* Player = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
-        if (Player)
-        {
-            FVector CenterLocation = FVector(MapWidth * MapGridSpacing / 2, MapHeight * MapGridSpacing / 2, 500);
-            Player->SetActorLocation(CenterLocation);
-            bPlayerCentered = true;
-        }
-    }
-    */
 }
 
 void ATerrainMeshActor::GetLifetimeReplicatedProps(TArray <FLifetimeProperty> & OutLifetimeProps) const
@@ -306,34 +276,4 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap()
     }
 
     ProcMesh->UpdateMeshSection(0, Vertices, Normals, TArray<FVector2D>(), TArray<FColor>(), Tangents);
-
-    /*
-    // Empty UV arrays for channels we don't use (required by the function signature)
-    TArray<FVector2D> EmptyUVs; // Re-use this for UV1, UV2, UV3
-
-    // Revert to always creating the mesh section
-    if (ProcMesh) // Check if ProcMesh is valid
-    {
-        // Ensure Triangles are calculated
-        Triangles.Reset(); // Clear just in case
-        Triangles.Reserve((Width - 1) * (Height - 1) * 6);
-        for (int32 X = 0; X < Width - 1; X++)
-        {
-            for (int32 Y = 0; Y < Height - 1; Y++)
-            {
-                int32 A = X * Height + Y;
-                int32 B = (X + 1) * Height + Y;
-                int32 C = X * Height + (Y + 1);
-                int32 D = (X + 1) * Height + (Y + 1);
-                if (Vertices.IsValidIndex(A) && Vertices.IsValidIndex(B) && Vertices.IsValidIndex(C) && Vertices.IsValidIndex(D))
-                {
-                   Triangles.Add(A); Triangles.Add(C); Triangles.Add(B);
-                   Triangles.Add(B); Triangles.Add(C); Triangles.Add(D);
-                }
-            }
-        }
-        // Always call CreateMeshSection with collision enabled
-        ProcMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, EmptyUVs, EmptyUVs, EmptyUVs, LinearVertexColors, Tangents, true); // bCreateCollision = true
-    }
-    */
 }

@@ -27,9 +27,6 @@ protected:
 	float MapGridSpacing;
 	float MapUVScale;
 
-	bool bPlayerCentered = false; //to move the player once
-	// bool bMeshSectionCreated = false; // Flag to track if section 0 is created
-
     // not yet
     //UPROPERTY(ReplicatedUsing=OnRepHeightMap)
     TArray<float> HeightMap;
@@ -63,6 +60,8 @@ public:
 
     void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
 	void StartWatcher();
+
+	void readFileContent();
 
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
