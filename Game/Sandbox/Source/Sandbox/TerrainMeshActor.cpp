@@ -4,79 +4,23 @@
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
 #include "Net/UnrealNetwork.h"
-#include <iostream>
-#include <fstream>
+#include "GameFramework/GameStateBase.h"
 
-const std::string logFilePath = "C:\\Users\\talha\\Desktop\\log.txt";
-const std::string filepath = "C:\\Users\\talha\\Desktop\\slope.bin";
-
-ATerrainMeshActor::ATerrainMeshActor(): watcher(filepath)
+ATerrainMeshActor::ATerrainMeshActor()
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
     ProcMesh->bUseAsyncCooking = false;
-
     bReplicates = true;
-    CheatTime = 0.0f;
-    CheatTimeMax = 0.0f;
-}
-
-void ATerrainMeshActor::readFileContent() {
-    std::ifstream inFile(filepath, std::ios::binary);
-
-    float matrix[100][100];
-    if (!inFile) {
-        return;
-    }
-    
-    // Read the entire 2D array from the file at once
-    inFile.read(reinterpret_cast<char*>(matrix), 100 * 100 * sizeof(float));
-    
-    inFile.close();
-
-    TArray<TArray<float>> HeightMap;
-    for (int32 X = 0; X < MapWidth; X++)
-    {
-        TArray<float> Row;
-        for (int32 Y = 0; Y < MapHeight; Y++)
-        {
-            Row.Add(matrix[Y][X]);
-        }
-        HeightMap.Add(Row);
-    }
-
-    TArray<TArray<float>> CutoffMap;
-
-
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
-    UpdateMeshFromHeightmap(CutoffMap);
-}
-
-void ATerrainMeshActor::StartWatcher() {
-    std::mutex cout_mutex;
-    watcher.start([this, &cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
-        auto now = std::chrono::system_clock::now();
-        auto now_time = std::chrono::system_clock::to_time_t(now);
-
-        std::lock_guard<std::mutex> lock(cout_mutex);
-
-        FString UEFileToWatch1 = FString(ctime(&now_time));
-
-        UE_LOG(LogTemp, Display, TEXT("Time: %s"), *UEFileToWatch1);
-
-        if (status != FileStatus::Deleted) {
-            this->readFileContent();
-        }
-    });
-
 }
 
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
-    StartWatcher();
+    UpdateTime = 0.0f;
+    if(GetLocalRole() == ROLE_Authority) watcher.Start("/home/mehme/slope.bin");
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
@@ -97,6 +41,9 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 
     TArray<int32> Triangles;
     Triangles.SetNum(6 * (MapWidthAbsolute - 1) * (MapHeightAbsolute - 1));
+
+    TargetHeightMap.AddDefaulted(MapHeight * MapWidth);
+    PreviousHeightMap.AddDefaulted(MapHeight * MapWidth);
 
     for(int32 Y = 0; Y < MapHeightAbsolute; ++Y)
     {
@@ -129,49 +76,61 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 void ATerrainMeshActor::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
-    if(HasAuthority()) {
-        CheatTime += DeltaTime;
-        CheatTimeMax = CheatTime;
-    }
+
+    static float Time = 0.0f;
     
-    if(HasAuthority() || true) {
+    TArray<uint8> FileContents;
+    if(GetLocalRole() == ROLE_Authority && watcher.Update(FileContents)) {
+        float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
 
-        //static float Time = 0.0f;
-        //Time += DeltaTime;
+        const float * RawData = (float*)FileContents.GetData();
 
-        float Time = CheatTimeMax;
-
-        // Generate animated heightmap for testing
-        TArray<float> HeightMapNonSmooth;
-
-        for (int32 X = 0; X < MapWidth; ++X)
-        {
-            for (int32 Y = 0; Y < MapHeight; ++Y)
-            {
-                float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
-                HeightMapNonSmooth.Add(HeightValue);
-            }
+        TArray<int8> CompressedData;
+        for(int32 i = 0; i < MapWidth * MapHeight; ++i) {
+            CompressedData.Add(RawData[i]);
         }
 
-        AddCutoffRegion(HeightMapNonSmooth, HeightMap, -120.0f, MapSmootheningOffset);
-        UpdateMeshFromHeightmap();
+        uint32 NChunks = 1;
+        uint32 ChunkSize = MapWidth * MapHeight / NChunks;
+        TArray<int8> CompressedDataChunk;
+        CompressedDataChunk.SetNum(ChunkSize);
+
+        for(uint32 i = 0; i < NChunks; ++i)
+        {
+            for(uint32 j = 0; j < ChunkSize; ++j)
+            {
+                CompressedDataChunk[j] = CompressedData[ChunkSize * i + j];
+            }
+            SendMapData(NewUpdateTime, CompressedDataChunk, i * ChunkSize);
+        }
     }
-}
 
-void ATerrainMeshActor::GetLifetimeReplicatedProps(TArray <FLifetimeProperty> & OutLifetimeProps) const
-{
-    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    float TimeSinceMapUpdate = GetWorld()->GetGameState()->GetServerWorldTimeSeconds() - UpdateTime;
+    const float LerpTime = 0.5f;
+    const float LerpStart = 0.5f;
 
-    //DOREPLIFETIME(ATerrainMeshActor, HeightMap);
-    DOREPLIFETIME(ATerrainMeshActor, CheatTime);
-}
+    TArray<float> HeightMapRaw;
 
-void ATerrainMeshActor::OnRepHeightMap() {
+    for (int32 i = 0; i < PreviousHeightMap.Num(); ++i)
+    {
+        HeightMapRaw.Add(FMath::Lerp(PreviousHeightMap[i], TargetHeightMap[i], FMath::Clamp((TimeSinceMapUpdate - LerpStart) / LerpTime, 0.0f, 1.0f)));
+    }
+
+    AddCutoffRegion(HeightMapRaw, HeightMap, -120.0f, MapSmootheningOffset);
     UpdateMeshFromHeightmap();
 }
 
-void ATerrainMeshActor::OnRepCheatTime() {
-    CheatTimeMax = CheatTime > CheatTimeMax ? CheatTime : CheatTimeMax;
+void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8> & CompressedData, uint32 Start) {
+    if(Time > UpdateTime) {
+        UpdateTime = Time;
+        PreviousHeightMap = TargetHeightMap;
+    }
+
+    TargetHeightMap.SetNum(Start + CompressedData.Num(), false);
+    for (int32 i = 0; i < CompressedData.Num(); ++i)
+    {
+        TargetHeightMap[i + Start] = CompressedData[i];
+    }
 }
 
 static inline float smoothLerp(float a, float b, float c) {

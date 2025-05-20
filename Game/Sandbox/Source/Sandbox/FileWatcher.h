@@ -2,42 +2,23 @@
 
 #pragma once
 
-#include <iostream>
-#include <string>
-#include <chrono>
-#include <thread>
-#include <filesystem>
-#include <functional>
-#include <atomic>
-#include <mutex>
+#include "CoreMinimal.h"
 
-enum class FileStatus {
-    FirstTime,
-    Modified,
-    Deleted
-};
-
-class FileWatcher {
+class FileWatcher : public FRunnable {
 public:
-    using Callback = std::function<void(const std::string& path, const FileStatus& status, const std::string& content)>;
-
-    // Constructor and destructor
     FileWatcher();
-    FileWatcher(const std::string& filepath);
-    ~FileWatcher();
-
-    // Core functionality
-    void start(const Callback& callback);
-    void stop();
+    bool Update(TArray<uint8> & Result);
+    void Start(const char * Path);
+    virtual bool Init() override;
+    virtual uint32 Run() override;
+    virtual void Exit() override;
+    virtual void Stop() override;
 
 private:
-    std::string filepath_;
-    std::chrono::duration<int, std::milli> delay_;
-    std::filesystem::file_time_type last_write_time_;
-    std::atomic<bool> running_;
-    std::thread watcher_thread_;
-    std::mutex cout_mutex_; // For thread-safe console output
-
-    // Helper function to read file content
-    std::string readFileContent(const std::string& filepath);
+    FString _Path;
+    FDateTime _LastWriteTime;
+    bool _Stop = false;
+    bool _PendingUpdate = false;
+    FPThreadsCriticalSection _Mutex;
+    TArray<uint8> _Data;
 };

@@ -27,30 +27,23 @@ protected:
 	float MapGridSpacing;
 	float MapUVScale;
 
-    // not yet
-    //UPROPERTY(ReplicatedUsing=OnRepHeightMap)
     TArray<float> HeightMap;
 
-    UPROPERTY(ReplicatedUsing=OnRepCheatTime)
-    float CheatTime;
-
-    float CheatTimeMax;
+    TArray<float> TargetHeightMap;
+    TArray<float> PreviousHeightMap;
 
     TArray<FVector> Vertices;
     TArray<FVector> Normals;
     TArray<FProcMeshTangent> Tangents;
 
-    UFUNCTION()
-    void OnRepHeightMap();
+    float UpdateTime;
 
-    UFUNCTION()
-    void OnRepCheatTime();
+    UFUNCTION(NetMulticast, Unreliable)
+    void SendMapData(float Time, const TArray<int8> &  CompressedData, uint32 Start);
 
 public:
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();
-
-    void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	virtual void Tick(float DeltaTime) override;
 
@@ -59,9 +52,6 @@ public:
     void SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale);
 
     void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
-	void StartWatcher();
-
-	void readFileContent();
 
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
