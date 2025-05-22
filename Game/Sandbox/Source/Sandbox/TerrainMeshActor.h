@@ -27,12 +27,19 @@ protected:
 	float MapGridSpacing;
 	float MapUVScale;
 
-	bool bPlayerCentered = false; //to move the player once
-	// bool bMeshSectionCreated = false; // Flag to track if section 0 is created
+    TArray<float> HeightMap;
+
+    TArray<float> TargetHeightMap;
+    TArray<float> PreviousHeightMap;
 
     TArray<FVector> Vertices;
     TArray<FVector> Normals;
     TArray<FProcMeshTangent> Tangents;
+
+    float UpdateTime;
+
+    UFUNCTION(NetMulticast, Unreliable)
+    void SendMapData(float Time, const TArray<int8> &  CompressedData, uint32 Start);
 
 public:
 	// Sets default values for this actor's properties
@@ -40,14 +47,11 @@ public:
 
 	virtual void Tick(float DeltaTime) override;
 
-	void UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap);
+	void UpdateMeshFromHeightmap();
 
     void SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale);
 
-    void AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail);
-	void StartWatcher();
-
-	void readFileContent();
+    void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
 
 	UPROPERTY(VisibleAnywhere)
 		UProceduralMeshComponent* ProcMesh;
