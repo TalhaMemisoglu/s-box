@@ -87,6 +87,9 @@ public:
 	uint8 bUsingMotionControllers : 1;
 
 protected:
+
+    UFUNCTION(Server, Reliable)
+    void FireFromClient(FRotator Rotation, FVector Position);
 	
 	/** Fires a projectile. */
 	void OnFire();

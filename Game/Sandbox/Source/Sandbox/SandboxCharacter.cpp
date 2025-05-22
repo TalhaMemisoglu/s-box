@@ -153,50 +153,65 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 
 void ASandboxCharacter::OnFire()
 {
-	// try and fire a projectile
-	if (ProjectileClass != nullptr)
-	{
-		UWorld* const World = GetWorld();
-		if (World != nullptr)
-		{
-			if (bUsingMotionControllers)
-			{
-				const FRotator SpawnRotation = VR_MuzzleLocation->GetComponentRotation();
-				const FVector SpawnLocation = VR_MuzzleLocation->GetComponentLocation();
-				World->SpawnActor<ASandboxProjectile>(ProjectileClass, SpawnLocation, SpawnRotation);
-			}
-			else
-			{
-				const FRotator SpawnRotation = GetControlRotation();
-				// MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
-				const FVector SpawnLocation = ((FP_MuzzleLocation != nullptr) ? FP_MuzzleLocation->GetComponentLocation() : GetActorLocation()) + SpawnRotation.RotateVector(GunOffset);
+    if(GetLocalRole() == ROLE_Authority) {
+        // try and fire a projectile
+        if (ProjectileClass != nullptr)
+        {
+            UWorld* const World = GetWorld();
+            if (World != nullptr)
+            {
+                if (bUsingMotionControllers)
+                {
+                    const FRotator SpawnRotation = VR_MuzzleLocation->GetComponentRotation();
+                    const FVector SpawnLocation = VR_MuzzleLocation->GetComponentLocation();
+                    World->SpawnActor<ASandboxProjectile>(ProjectileClass, SpawnLocation, SpawnRotation);
+                }
+                else
+                {
+                    const FRotator SpawnRotation = GetControlRotation();
+                    // MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
+                    const FVector SpawnLocation = ((FP_MuzzleLocation != nullptr) ? FP_MuzzleLocation->GetComponentLocation() : GetActorLocation()) + SpawnRotation.RotateVector(GunOffset);
 
-				//Set Spawn Collision Handling Override
-				FActorSpawnParameters ActorSpawnParams;
-				ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+                    //Set Spawn Collision Handling Override
+                    FActorSpawnParameters ActorSpawnParams;
+                    ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
 
-				// spawn the projectile at the muzzle
-				World->SpawnActor<ASandboxProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
-			}
-		}
-	}
+                    // spawn the projectile at the muzzle
+                    World->SpawnActor<ASandboxProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+                }
+            }
+        }
+    }
+    else {
+        const FRotator SpawnRotation = GetControlRotation();
+        const FVector SpawnLocation = ((FP_MuzzleLocation != nullptr) ? FP_MuzzleLocation->GetComponentLocation() : GetActorLocation()) + SpawnRotation.RotateVector(GunOffset);
+        FireFromClient(SpawnRotation, SpawnLocation);
+    }
 
-	// try and play the sound if specified
-	if (FireSound != nullptr)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation());
-	}
+    // try and play the sound if specified
+    if (FireSound != nullptr)
+    {
+        UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation());
+    }
 
-	// try and play a firing animation if specified
-	if (FireAnimation != nullptr)
-	{
-		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
-		}
-	}
+    // try and play a firing animation if specified
+    if (FireAnimation != nullptr)
+    {
+        // Get the animation object for the arms mesh
+        UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
+        if (AnimInstance != nullptr)
+        {
+            AnimInstance->Montage_Play(FireAnimation, 1.f);
+        }
+    }
+}
+
+void ASandboxCharacter::FireFromClient_Implementation(FRotator Rotation, FVector Position) {
+    UWorld* const World = GetWorld();
+    FActorSpawnParameters ActorSpawnParams;
+    ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
+
+    World->SpawnActor<ASandboxProjectile>(ProjectileClass, Position, Rotation, ActorSpawnParams);
 }
 
 void ASandboxCharacter::OnResetVR()

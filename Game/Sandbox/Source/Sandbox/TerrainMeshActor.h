@@ -16,7 +16,9 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	FileWatcher watcher;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	FileWatcher * watcher;
 
 	//for testing dynamic map
 	int32 MapWidth;

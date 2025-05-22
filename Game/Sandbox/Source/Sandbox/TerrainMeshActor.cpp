@@ -21,7 +21,18 @@ void ATerrainMeshActor::BeginPlay()
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
     UpdateTime = 0.0f;
-    if(GetLocalRole() == ROLE_Authority) watcher.Start("/home/mehme/slope.bin");
+    if(GetLocalRole() == ROLE_Authority)
+    {
+        watcher = new FileWatcher();
+        watcher->Start("/home/mehme/slope.bin");
+    }
+}
+
+void ATerrainMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if(GetLocalRole() == ROLE_Authority) {
+        watcher->Stop();
+    }
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
@@ -81,7 +92,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     static float Time = 0.0f;
     
     TArray<uint8> FileContents;
-    if(GetLocalRole() == ROLE_Authority && watcher.Update(FileContents)) {
+    if(GetLocalRole() == ROLE_Authority && watcher->Update(FileContents)) {
         float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
 
         const float * RawData = (float*)FileContents.GetData();
@@ -226,11 +237,11 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap()
             Vertices[X * MapHeightAbsolute + Y].Z = Z;
 
             // Calculate Normals and Tangents (check bounds for neighbors)
-            float Z_NeighborX = (X > 0) ? HeightMap[X * MapHeightAbsolute - 1 + Y] : Z;
-            float Z_NeighborY = (Y > 0) ? HeightMap[X * MapHeightAbsolute + Y - 1] : Z;
-            FVector U = FVector(15, 0, Z - Z_NeighborX).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing
-            FVector V = FVector(0, 15, Z - Z_NeighborY).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing    
-            Normals[X * MapHeightAbsolute + Y] = FVector::CrossProduct(U, V);
+            float Z_NeighborX = (X < MapWidthAbsolute - 1) ? HeightMap[(X + 1) * MapHeightAbsolute + Y] : Z;
+            float Z_NeighborY = (Y < MapHeightAbsolute - 1) ? HeightMap[X * MapHeightAbsolute + Y + 1] : Z;
+            FVector U = FVector(MapGridSpacing, 0, Z_NeighborX - Z);
+            FVector V = FVector(0, MapGridSpacing, Z_NeighborY - Z);
+            Normals[X * MapHeightAbsolute + Y] = FVector::CrossProduct(U, V).GetUnsafeNormal();
             Tangents[X * MapHeightAbsolute + Y] = FProcMeshTangent(U, false);
         }
     }
