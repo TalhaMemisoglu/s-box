@@ -13,6 +13,7 @@ ATerrainMeshActor::ATerrainMeshActor()
     RootComponent = ProcMesh;
     ProcMesh->bUseAsyncCooking = false;
     bReplicates = true;
+    bAlwaysRelevant = true;
 }
 
 void ATerrainMeshActor::BeginPlay()
