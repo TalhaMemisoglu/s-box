@@ -5,6 +5,7 @@
 #include "DrawDebugHelpers.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/GameStateBase.h"
+#include "SandboxCharacter.h"
 
 ATerrainMeshActor::ATerrainMeshActor()
 {
@@ -14,6 +15,7 @@ ATerrainMeshActor::ATerrainMeshActor()
     ProcMesh->bUseAsyncCooking = false;
     bReplicates = true;
     bAlwaysRelevant = true;
+    NetUpdateFrequency = 1.0f;
 }
 
 void ATerrainMeshActor::BeginPlay()
@@ -25,6 +27,15 @@ void ATerrainMeshActor::BeginPlay()
     {
         watcher = new FileWatcher();
         watcher->Start("/home/mehme/slope.bin");
+    }
+    else {
+        APlayerController * LocalController = GEngine->GetFirstLocalPlayerController(GetWorld());
+        if(LocalController) {
+            ASandboxCharacter * Character = Cast<ASandboxCharacter>(LocalController->GetPawn());
+            if(Character) {
+                Character->RequestMapUpdate(this);
+            }
+        }
     }
 }
 
@@ -93,28 +104,15 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     
     TArray<uint8> FileContents;
     if(GetLocalRole() == ROLE_Authority && watcher->Update(FileContents)) {
-        float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
-
         const float * RawData = (float*)FileContents.GetData();
 
-        TArray<int8> CompressedData;
+        CompressedData.Reset(0);
         for(int32 i = 0; i < MapWidth * MapHeight; ++i) {
             CompressedData.Add(RawData[i]);
         }
 
-        uint32 NChunks = 1;
-        uint32 ChunkSize = MapWidth * MapHeight / NChunks;
-        TArray<int8> CompressedDataChunk;
-        CompressedDataChunk.SetNum(ChunkSize);
-
-        for(uint32 i = 0; i < NChunks; ++i)
-        {
-            for(uint32 j = 0; j < ChunkSize; ++j)
-            {
-                CompressedDataChunk[j] = CompressedData[ChunkSize * i + j];
-            }
-            SendMapData(NewUpdateTime, CompressedDataChunk, i * ChunkSize);
-        }
+        float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
+        SendMapData(NewUpdateTime, CompressedData);
     }
 
     float TimeSinceMapUpdate = GetWorld()->GetGameState()->GetServerWorldTimeSeconds() - UpdateTime;
@@ -132,17 +130,19 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     UpdateMeshFromHeightmap();
 }
 
-void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8> & CompressedData, uint32 Start) {
-    if(Time > UpdateTime) {
-        UpdateTime = Time;
-        PreviousHeightMap = TargetHeightMap;
-    }
+void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8> & Data) {
+    UpdateTime = Time;
+    PreviousHeightMap = TargetHeightMap;
 
-    TargetHeightMap.SetNum(Start + CompressedData.Num(), false);
-    for (int32 i = 0; i < CompressedData.Num(); ++i)
+    TargetHeightMap.SetNum(Data.Num(), false);
+    for (int32 i = 0; i < Data.Num(); ++i)
     {
-        TargetHeightMap[i + Start] = CompressedData[i];
+        TargetHeightMap[i] = Data[i];
     }
+}
+
+void ATerrainMeshActor::RequestMapUpdate_Implementation() {
+    SendMapData(UpdateTime, CompressedData);
 }
 
 static inline float smoothLerp(float a, float b, float c) {

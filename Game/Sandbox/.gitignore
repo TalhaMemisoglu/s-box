@@ -33,3 +33,5 @@ PackagedBuilds/
 
 # Crash Reports
 crashinfo/
+
+Makefile

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "TerrainMeshActor.h"
 #include "SandboxCharacter.generated.h"
 
 class UInputComponent;
@@ -53,6 +54,9 @@ class ASandboxCharacter : public ACharacter
 
 public:
 	ASandboxCharacter();
+
+    UFUNCTION(Server, Reliable)
+    void RequestMapUpdate(ATerrainMeshActor * TerrainMesh);
 
 protected:
 	virtual void BeginPlay();

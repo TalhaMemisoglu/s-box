@@ -39,11 +39,15 @@ protected:
     TArray<FProcMeshTangent> Tangents;
 
     float UpdateTime;
+    TArray<int8> CompressedData;
 
-    UFUNCTION(NetMulticast, Unreliable)
-    void SendMapData(float Time, const TArray<int8> &  CompressedData, uint32 Start);
+    UFUNCTION(NetMulticast, Reliable)
+    void SendMapData(float Time, const TArray<int8> &  Data);
 
 public:
+    UFUNCTION(Server, Reliable)
+    void RequestMapUpdate();
+
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();
 
@@ -56,6 +60,6 @@ public:
     void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
 
 	UPROPERTY(VisibleAnywhere)
-		UProceduralMeshComponent* ProcMesh;
+	UProceduralMeshComponent* ProcMesh;
 
 };

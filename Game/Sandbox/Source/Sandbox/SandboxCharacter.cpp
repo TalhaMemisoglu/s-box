@@ -206,12 +206,18 @@ void ASandboxCharacter::OnFire()
     }
 }
 
-void ASandboxCharacter::FireFromClient_Implementation(FRotator Rotation, FVector Position) {
+void ASandboxCharacter::FireFromClient_Implementation(FRotator Rotation, FVector Position)
+{
     UWorld* const World = GetWorld();
     FActorSpawnParameters ActorSpawnParams;
     ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
 
     World->SpawnActor<ASandboxProjectile>(ProjectileClass, Position, Rotation, ActorSpawnParams);
+}
+
+void ASandboxCharacter::RequestMapUpdate_Implementation(ATerrainMeshActor * TerrainMesh)
+{
+    if(TerrainMesh) TerrainMesh->RequestMapUpdate();
 }
 
 void ASandboxCharacter::OnResetVR()
