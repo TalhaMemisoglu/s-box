@@ -3,43 +3,76 @@
 #include "GameFramework/Character.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include <iostream>
+#include <fstream>
 
-ATerrainMeshActor::ATerrainMeshActor()
+const std::string logFilePath = "C:\\Users\\talha\\Desktop\\log.txt";
+const std::string filepath = "C:\\Users\\talha\\Desktop\\slope.bin";
+
+ATerrainMeshActor::ATerrainMeshActor(): watcher(filepath)
 {
     PrimaryActorTick.bCanEverTick = true;
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
     ProcMesh->bUseAsyncCooking = false;
-
-    //SetMapSize(100, 100, 15, 20.0f, 1.0f);
-
-    /*
-    //for preview the dynamic map before start the game
-    #if WITH_EDITOR
-        if (!IsRunningGame())
-        {
-            TArray<TArray<float>> PreviewMap;
-            for (int32 X = 0; X < MapWidth; ++X)
-            {
-                TArray<float> Row;
-                for (int32 Y = 0; Y < MapHeight; ++Y)
-                {
-                    float Z = FMath::Sin(X * 0.1f) * FMath::Cos(Y * 0.1f) * 100.f;
-                    Row.Add(Z);
-                }
-                PreviewMap.Add(Row);
-            }
-
-            UpdateMeshFromHeightmap(PreviewMap, MapGridSpacing);
-        }
-    #endif
-    */
 }
+
+void ATerrainMeshActor::readFileContent() {
+    std::ifstream inFile(filepath, std::ios::binary);
+
+    float matrix[100][100];
+    if (!inFile) {
+        return;
+    }
+    
+    // Read the entire 2D array from the file at once
+    inFile.read(reinterpret_cast<char*>(matrix), 100 * 100 * sizeof(float));
+    
+    inFile.close();
+
+    TArray<TArray<float>> HeightMap;
+    for (int32 X = 0; X < MapWidth; X++)
+    {
+        TArray<float> Row;
+        for (int32 Y = 0; Y < MapHeight; Y++)
+        {
+            Row.Add(matrix[Y][X]);
+        }
+        HeightMap.Add(Row);
+    }
+
+    TArray<TArray<float>> CutoffMap;
+
+
+    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
+    UpdateMeshFromHeightmap(CutoffMap);
+}
+
+void ATerrainMeshActor::StartWatcher() {
+    std::mutex cout_mutex;
+    watcher.start([this, &cout_mutex](const std::string& path, const FileStatus& status, const std::string& content) {
+        auto now = std::chrono::system_clock::now();
+        auto now_time = std::chrono::system_clock::to_time_t(now);
+
+        std::lock_guard<std::mutex> lock(cout_mutex);
+
+        FString UEFileToWatch1 = FString(ctime(&now_time));
+
+        UE_LOG(LogTemp, Display, TEXT("Time: %s"), *UEFileToWatch1);
+
+        if (status != FileStatus::Deleted) {
+            this->readFileContent();
+        }
+    });
+
+}
+
 
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
-    SetMapSize(100, 100, 15, 20.0f, 0.2f);
+    SetMapSize(99, 99, 15, 20.0f, 0.2f);
+    StartWatcher();
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
@@ -91,43 +124,7 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 
 void ATerrainMeshActor::Tick(float DeltaTime)
 {
-    
     Super::Tick(DeltaTime);
-
-    static float Time = 0.0f;
-    Time += DeltaTime;
-
-    // Generate animated heightmap for testing
-    TArray<TArray<float>> HeightMap;
-
-    for (int32 X = 0; X < MapWidth; ++X)
-    {
-        TArray<float> Row;
-        for (int32 Y = 0; Y < MapHeight; ++Y)
-        {
-            float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
-            Row.Add(HeightValue);
-        }
-        HeightMap.Add(Row);
-    }
-
-    TArray<TArray<float>> CutoffMap;
-
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
-    UpdateMeshFromHeightmap(CutoffMap);
-
-    /* Move the player to the center of terrain only once
-    if (!bPlayerCentered)
-    {
-        ACharacter* Player = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
-        if (Player)
-        {
-            FVector CenterLocation = FVector(MapWidth * MapGridSpacing / 2, MapHeight * MapGridSpacing / 2, 500);
-            Player->SetActorLocation(CenterLocation);
-            bPlayerCentered = true;
-        }
-    }
-    */
 }
 
 static inline float smoothLerp(float a, float b, float c) {
@@ -227,6 +224,7 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
 
     if (Width != MapWidthAbsolute || MapHeightAbsolute <= 1)
     {
+        UE_LOG(LogTemp, Display, TEXT("Width: %d, MapWidthAbsolute: %d, MapHeightAbsolute: %d"), Width, MapWidthAbsolute, MapHeightAbsolute);
         return;
     }
 
@@ -248,34 +246,4 @@ void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& Hei
     }
 
     ProcMesh->UpdateMeshSection(0, Vertices, Normals, TArray<FVector2D>(), TArray<FColor>(), Tangents);
-
-    /*
-    // Empty UV arrays for channels we don't use (required by the function signature)
-    TArray<FVector2D> EmptyUVs; // Re-use this for UV1, UV2, UV3
-
-    // Revert to always creating the mesh section
-    if (ProcMesh) // Check if ProcMesh is valid
-    {
-        // Ensure Triangles are calculated
-        Triangles.Reset(); // Clear just in case
-        Triangles.Reserve((Width - 1) * (Height - 1) * 6);
-        for (int32 X = 0; X < Width - 1; X++)
-        {
-            for (int32 Y = 0; Y < Height - 1; Y++)
-            {
-                int32 A = X * Height + Y;
-                int32 B = (X + 1) * Height + Y;
-                int32 C = X * Height + (Y + 1);
-                int32 D = (X + 1) * Height + (Y + 1);
-                if (Vertices.IsValidIndex(A) && Vertices.IsValidIndex(B) && Vertices.IsValidIndex(C) && Vertices.IsValidIndex(D))
-                {
-                   Triangles.Add(A); Triangles.Add(C); Triangles.Add(B);
-                   Triangles.Add(B); Triangles.Add(C); Triangles.Add(D);
-                }
-            }
-        }
-        // Always call CreateMeshSection with collision enabled
-        ProcMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, EmptyUVs, EmptyUVs, EmptyUVs, LinearVertexColors, Tangents, true); // bCreateCollision = true
-    }
-    */
 }
