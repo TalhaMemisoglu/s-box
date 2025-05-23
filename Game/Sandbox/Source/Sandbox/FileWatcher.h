@@ -19,6 +19,6 @@ private:
     FDateTime _LastWriteTime;
     bool _Stop = false;
     bool _PendingUpdate = false;
-    FPThreadsCriticalSection _Mutex;
+    FCriticalSection _Mutex;
     TArray<uint8> _Data;
 };

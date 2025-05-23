@@ -26,7 +26,7 @@ void ATerrainMeshActor::BeginPlay()
     if(GetLocalRole() == ROLE_Authority)
     {
         watcher = new FileWatcher();
-        watcher->Start("/home/mehme/slope.bin");
+        watcher->Start("C:\\Users\\talha\\Desktop\\slope.bin");
     }
     else {
         APlayerController * LocalController = GEngine->GetFirstLocalPlayerController(GetWorld());
@@ -108,7 +108,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
 
         CompressedData.Reset(0);
         for(int32 i = 0; i < MapWidth * MapHeight; ++i) {
-            CompressedData.Add(RawData[i]);
+            CompressedData.Add((RawData[i]-300.f)/4);
         }
 
         float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
@@ -137,7 +137,7 @@ void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8
     TargetHeightMap.SetNum(Data.Num(), false);
     for (int32 i = 0; i < Data.Num(); ++i)
     {
-        TargetHeightMap[i] = Data[i];
+        TargetHeightMap[i] = 300.f + 4.0f*Data[i];
     }
 }
 
