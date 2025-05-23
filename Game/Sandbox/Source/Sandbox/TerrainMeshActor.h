@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "FileWatcher.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "ProceduralMeshComponent.h"
@@ -15,6 +16,10 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	FileWatcher * watcher;
+
 	//for testing dynamic map
 	int32 MapWidth;
 	int32 MapHeight;
@@ -24,26 +29,37 @@ protected:
 	float MapGridSpacing;
 	float MapUVScale;
 
-	bool bPlayerCentered = false; //to move the player once
-	// bool bMeshSectionCreated = false; // Flag to track if section 0 is created
+    TArray<float> HeightMap;
+
+    TArray<float> TargetHeightMap;
+    TArray<float> PreviousHeightMap;
 
     TArray<FVector> Vertices;
     TArray<FVector> Normals;
     TArray<FProcMeshTangent> Tangents;
 
+    float UpdateTime;
+    TArray<int8> CompressedData;
+
+    UFUNCTION(NetMulticast, Reliable)
+    void SendMapData(float Time, const TArray<int8> &  Data);
+
 public:
+    UFUNCTION(Server, Reliable)
+    void RequestMapUpdate();
+
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();
 
 	virtual void Tick(float DeltaTime) override;
 
-	void UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap);
+	void UpdateMeshFromHeightmap();
 
     void SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale);
 
-    void AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail);
+    void AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail);
 
 	UPROPERTY(VisibleAnywhere)
-		UProceduralMeshComponent* ProcMesh;
+	UProceduralMeshComponent* ProcMesh;
 
 };

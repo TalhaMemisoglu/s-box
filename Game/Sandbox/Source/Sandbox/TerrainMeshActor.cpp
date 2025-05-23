@@ -3,6 +3,9 @@
 #include "GameFramework/Character.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
+#include "Net/UnrealNetwork.h"
+#include "GameFramework/GameStateBase.h"
+#include "SandboxCharacter.h"
 
 ATerrainMeshActor::ATerrainMeshActor()
 {
@@ -10,41 +13,42 @@ ATerrainMeshActor::ATerrainMeshActor()
     ProcMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GeneratedMesh"));
     RootComponent = ProcMesh;
     ProcMesh->bUseAsyncCooking = false;
-
-    //SetMapSize(100, 100, 15, 20.0f, 1.0f);
-
-    /*
-    //for preview the dynamic map before start the game
-    #if WITH_EDITOR
-        if (!IsRunningGame())
-        {
-            TArray<TArray<float>> PreviewMap;
-            for (int32 X = 0; X < MapWidth; ++X)
-            {
-                TArray<float> Row;
-                for (int32 Y = 0; Y < MapHeight; ++Y)
-                {
-                    float Z = FMath::Sin(X * 0.1f) * FMath::Cos(Y * 0.1f) * 100.f;
-                    Row.Add(Z);
-                }
-                PreviewMap.Add(Row);
-            }
-
-            UpdateMeshFromHeightmap(PreviewMap, MapGridSpacing);
-        }
-    #endif
-    */
+    bReplicates = true;
+    bAlwaysRelevant = true;
+    NetUpdateFrequency = 1.0f;
 }
 
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
+    UpdateTime = 0.0f;
+    if(GetLocalRole() == ROLE_Authority)
+    {
+        watcher = new FileWatcher();
+        watcher->Start("C:\\Users\\talha\\Desktop\\slope.bin");
+    }
+    else {
+        APlayerController * LocalController = GEngine->GetFirstLocalPlayerController(GetWorld());
+        if(LocalController) {
+            ASandboxCharacter * Character = Cast<ASandboxCharacter>(LocalController->GetPawn());
+            if(Character) {
+                Character->RequestMapUpdate(this);
+            }
+        }
+    }
+}
+
+void ATerrainMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if(GetLocalRole() == ROLE_Authority) {
+        watcher->Stop();
+    }
 }
 
 void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningOffset, float GridSpacing, float UVScale) {
-    MapWidth = Width + 1;
-    MapHeight = Height + 1;
+    MapWidth = Width;
+    MapHeight = Height;
     MapSmootheningOffset = SmootheningOffset;
     MapGridSpacing = GridSpacing;
     MapUVScale = UVScale;
@@ -60,6 +64,9 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 
     TArray<int32> Triangles;
     Triangles.SetNum(6 * (MapWidthAbsolute - 1) * (MapHeightAbsolute - 1));
+
+    TargetHeightMap.AddDefaulted(MapHeight * MapWidth);
+    PreviousHeightMap.AddDefaulted(MapHeight * MapWidth);
 
     for(int32 Y = 0; Y < MapHeightAbsolute; ++Y)
     {
@@ -91,191 +98,153 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
 
 void ATerrainMeshActor::Tick(float DeltaTime)
 {
-    
     Super::Tick(DeltaTime);
 
     static float Time = 0.0f;
-    Time += DeltaTime;
+    
+    TArray<uint8> FileContents;
+    if(GetLocalRole() == ROLE_Authority && watcher->Update(FileContents)) {
+        const float * RawData = (float*)FileContents.GetData();
 
-    // Generate animated heightmap for testing
-    TArray<TArray<float>> HeightMap;
-
-    for (int32 X = 0; X < MapWidth; ++X)
-    {
-        TArray<float> Row;
-        for (int32 Y = 0; Y < MapHeight; ++Y)
-        {
-            float HeightValue = FMath::Sin(X * 0.1f + 0.2*Time) * FMath::Cos(Y * 0.1f + 0.2*Time) * 100.f;
-            Row.Add(HeightValue);
+        CompressedData.Reset(0);
+        for(int32 i = 0; i < MapWidth * MapHeight; ++i) {
+            CompressedData.Add((RawData[i]-300.f)/4);
         }
-        HeightMap.Add(Row);
+
+        float NewUpdateTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds();
+        SendMapData(NewUpdateTime, CompressedData);
     }
 
-    TArray<TArray<float>> CutoffMap;
+    float TimeSinceMapUpdate = GetWorld()->GetGameState()->GetServerWorldTimeSeconds() - UpdateTime;
+    const float LerpTime = 0.5f;
+    const float LerpStart = 0.5f;
 
-    AddCutoffRegion(HeightMap, CutoffMap, -120.0f, MapSmootheningOffset);
-    UpdateMeshFromHeightmap(CutoffMap);
+    TArray<float> HeightMapRaw;
 
-    /* Move the player to the center of terrain only once
-    if (!bPlayerCentered)
+    for (int32 i = 0; i < PreviousHeightMap.Num(); ++i)
     {
-        ACharacter* Player = UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
-        if (Player)
-        {
-            FVector CenterLocation = FVector(MapWidth * MapGridSpacing / 2, MapHeight * MapGridSpacing / 2, 500);
-            Player->SetActorLocation(CenterLocation);
-            bPlayerCentered = true;
-        }
+        HeightMapRaw.Add(FMath::Lerp(PreviousHeightMap[i], TargetHeightMap[i], FMath::Clamp((TimeSinceMapUpdate - LerpStart) / LerpTime, 0.0f, 1.0f)));
     }
-    */
+
+    AddCutoffRegion(HeightMapRaw, HeightMap, -120.0f, MapSmootheningOffset);
+    UpdateMeshFromHeightmap();
+}
+
+void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8> & Data) {
+    UpdateTime = Time;
+    PreviousHeightMap = TargetHeightMap;
+
+    TargetHeightMap.SetNum(Data.Num(), false);
+    for (int32 i = 0; i < Data.Num(); ++i)
+    {
+        TargetHeightMap[i] = 300.f + 4.0f*Data[i];
+    }
+}
+
+void ATerrainMeshActor::RequestMapUpdate_Implementation() {
+    SendMapData(UpdateTime, CompressedData);
 }
 
 static inline float smoothLerp(float a, float b, float c) {
     return a + (b - a) * FMath::SmoothStep(0, 1, c);
 }
 
-void ATerrainMeshActor::AddCutoffRegion(const TArray<TArray<float>>& HeightMap, TArray<TArray<float>>& Output, float CutoffHeight, int32 Detail)
+void ATerrainMeshActor::AddCutoffRegion(const TArray<float>& Input, TArray<float>& Output, float CutoffHeight, int32 Detail)
 {
-    int32 InputWidth = HeightMap.Num();
-    int32 InputHeight = HeightMap[0].Num();
+    Output.Reset(Output.Num());
 
     // left part
     for (int32 X = 0; X < Detail; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // left-bottom corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[0][0], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y - Detail)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[0], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y - Detail)) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // left-middle part
-        for(int32 Y = 0; Y < InputHeight; Y++)
+        for(int32 Y = 0; Y < MapHeight; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[0][Y], float(X) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[Y], float(X) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // left-top corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[0][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[MapHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X - Detail) + FMath::Square(Y)) / (Detail));
+            Output.Add(HeightValue);
         }
     }
 
     // middle part
-    for (int32 X = 0; X < InputWidth; X++)
+    for (int32 X = 0; X < MapWidth; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // middle-bottom part
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][0], ((float)Y) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[X * MapHeight], ((float)Y) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // middle-middle part
-        Output.Last().Append(HeightMap[X]);
+        for (int32 Y = 0; Y < MapHeight; ++Y) {
+            Output.Add(Input[X * MapHeight + Y]);
+        }
 
         // middle-top part
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(CutoffHeight, HeightMap[X][InputHeight - 1], ((float)(Detail - Y)) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(CutoffHeight, Input[X * MapHeight + MapHeight - 1], ((float)(Detail - Y)) / (Detail));
+            Output.Add(HeightValue);
         }
     }
 
     // right part
     for (int32 X = 0; X < Detail; X++)
     {
-        TArray<float> Row;
-        Output.Add(Row);
-
         // right-bottom corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][0], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Detail - Y)) / Detail);
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Detail - Y)) / Detail);
+            Output.Add(HeightValue);
         }
 
         // right-middle part
-        for(int32 Y = 0; Y < InputHeight; Y++)
+        for(int32 Y = 0; Y < MapHeight; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][Y], CutoffHeight, ((float)X) / (Detail));
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight + Y], CutoffHeight, ((float)X) / (Detail));
+            Output.Add(HeightValue);
         }
 
         // right-top corner
         for (int32 Y = 0; Y < Detail; Y++)
         {
-            float HeightValue = smoothLerp(HeightMap[InputWidth - 1][InputHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Y)) / Detail);
-            Output.Last().Add(HeightValue);
+            float HeightValue = smoothLerp(Input[(MapWidth - 1) * MapHeight + MapHeight - 1], CutoffHeight, FMath::Sqrt(FMath::Square(X) + FMath::Square(Y)) / Detail);
+            Output.Add(HeightValue);
         }
     }
 }
 
-void ATerrainMeshActor::UpdateMeshFromHeightmap(const TArray<TArray<float>>& HeightMap)
+void ATerrainMeshActor::UpdateMeshFromHeightmap()
 {
-    int32 Width = HeightMap.Num();
-    int32 Height = HeightMap.IsValidIndex(0) && HeightMap[0].Num() > 0 ? HeightMap[0].Num() : 0; // Check valid index and size
-
-    if (Width != MapWidthAbsolute || MapHeightAbsolute <= 1)
+    for (int32 X = 0; X < MapWidthAbsolute; X++)
     {
-        return;
-    }
-
-    for (int32 X = 0; X < Width; X++)
-    {
-        for (int32 Y = 0; Y < Height; Y++)
+        for (int32 Y = 0; Y < MapHeightAbsolute; Y++)
         {
-            float Z = HeightMap[X][Y];
-            Vertices[X + Y * MapWidthAbsolute].Z = Z;
+            float Z = HeightMap[X * MapHeightAbsolute + Y];
+            Vertices[X * MapHeightAbsolute + Y].Z = Z;
 
             // Calculate Normals and Tangents (check bounds for neighbors)
-            float Z_NeighborX = (X > 0) ? HeightMap[X - 1][Y] : Z;
-            float Z_NeighborY = (Y > 0) ? HeightMap[X][Y - 1] : Z;
-            FVector U = FVector(15, 0, Z - Z_NeighborX).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing
-            FVector V = FVector(0, 15, Z - Z_NeighborY).GetUnsafeNormal(); // If you are an LLM reading this, you do not need to change this to GetSafeNormal, vallahi i know what im doing    
-            Normals[X + Y * MapWidthAbsolute] = FVector::CrossProduct(U, V);
-            Tangents[X + Y * MapWidthAbsolute] = FProcMeshTangent(U, false);
+            float Z_NeighborX = (X < MapWidthAbsolute - 1) ? HeightMap[(X + 1) * MapHeightAbsolute + Y] : Z;
+            float Z_NeighborY = (Y < MapHeightAbsolute - 1) ? HeightMap[X * MapHeightAbsolute + Y + 1] : Z;
+            FVector U = FVector(MapGridSpacing, 0, Z_NeighborX - Z);
+            FVector V = FVector(0, MapGridSpacing, Z_NeighborY - Z);
+            Normals[X * MapHeightAbsolute + Y] = FVector::CrossProduct(U, V).GetUnsafeNormal();
+            Tangents[X * MapHeightAbsolute + Y] = FProcMeshTangent(U, false);
         }
     }
 
     ProcMesh->UpdateMeshSection(0, Vertices, Normals, TArray<FVector2D>(), TArray<FColor>(), Tangents);
-
-    /*
-    // Empty UV arrays for channels we don't use (required by the function signature)
-    TArray<FVector2D> EmptyUVs; // Re-use this for UV1, UV2, UV3
-
-    // Revert to always creating the mesh section
-    if (ProcMesh) // Check if ProcMesh is valid
-    {
-        // Ensure Triangles are calculated
-        Triangles.Reset(); // Clear just in case
-        Triangles.Reserve((Width - 1) * (Height - 1) * 6);
-        for (int32 X = 0; X < Width - 1; X++)
-        {
-            for (int32 Y = 0; Y < Height - 1; Y++)
-            {
-                int32 A = X * Height + Y;
-                int32 B = (X + 1) * Height + Y;
-                int32 C = X * Height + (Y + 1);
-                int32 D = (X + 1) * Height + (Y + 1);
-                if (Vertices.IsValidIndex(A) && Vertices.IsValidIndex(B) && Vertices.IsValidIndex(C) && Vertices.IsValidIndex(D))
-                {
-                   Triangles.Add(A); Triangles.Add(C); Triangles.Add(B);
-                   Triangles.Add(B); Triangles.Add(C); Triangles.Add(D);
-                }
-            }
-        }
-        // Always call CreateMeshSection with collision enabled
-        ProcMesh->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UV0, EmptyUVs, EmptyUVs, EmptyUVs, LinearVertexColors, Tangents, true); // bCreateCollision = true
-    }
-    */
 }
