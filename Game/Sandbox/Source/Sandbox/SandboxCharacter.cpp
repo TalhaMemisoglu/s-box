@@ -86,6 +86,9 @@ ASandboxCharacter::ASandboxCharacter()
 
 	// Uncomment the following line to turn motion controllers on by default:
 	//bUsingMotionControllers = true;
+
+	bShowLocation = false;
+	LocationWidget = nullptr;
 }
 
 void ASandboxCharacter::BeginPlay()
@@ -103,6 +106,20 @@ void ASandboxCharacter::BeginPlay()
 		{
 			HealthBarWidget->AddToViewport();
 			UpdateHealthText(); // custom function we'll define below
+		}
+	}
+
+	//For coordinates
+	if (LocationWidgetClass)
+	{
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Get the text block reference by name
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
 		}
 	}
 
@@ -164,6 +181,9 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 
 	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &ASandboxCharacter::BeginSprint);
 	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &ASandboxCharacter::EndSprint);
+
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &ASandboxCharacter::ToggleLocationDisplay);
 }
 
 void ASandboxCharacter::UpdateHealthText()
@@ -358,4 +378,69 @@ bool ASandboxCharacter::EnableTouchscreenMovement(class UInputComponent* PlayerI
 	}
 	
 	return false;
+}
+
+void ASandboxCharacter::ToggleLocationDisplay()
+{
+	bShowLocation = !bShowLocation;
+
+	if (LocationWidget)
+	{
+		if (bShowLocation)
+		{
+			// Show the widget and start updating coordinates
+			LocationWidget->SetVisibility(ESlateVisibility::Visible);
+			
+			// Start the timer to update coordinates every 0.1 seconds
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &ASandboxCharacter::UpdateLocationText, 0.1f, true);
+			
+			// Update immediately
+			UpdateLocationText();
+		}
+		else
+		{
+			// Hide the widget and stop updating
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+			
+			// Clear the timer
+			GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+		}
+	}
+	else if (bShowLocation && LocationWidgetClass)
+	{
+		// Create widget if it doesn't exist and we want to show it
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+			
+			// Start updating
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &ASandboxCharacter::UpdateLocationText, 0.1f, true);
+			UpdateLocationText();
+		}
+	}
+}
+
+void ASandboxCharacter::Destroyed()
+{
+	// Clear the location update timer when character is destroyed
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+	}
+	
+	Super::Destroyed();
+}
+
+void ASandboxCharacter::UpdateLocationText()
+{
+	if (!LocationText) 
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation();
+	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
+	LocationText->SetText(FText::FromString(LocationString));
 }

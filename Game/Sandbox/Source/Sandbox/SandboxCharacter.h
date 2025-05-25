@@ -61,6 +61,8 @@ public:
 protected:
 	virtual void BeginPlay();
 
+	virtual void Destroyed() override;
+
 public:
 	//Health
 	UPROPERTY(EditAnywhere, Category = "UI")
@@ -150,6 +152,23 @@ protected:
 	void TouchUpdate(const ETouchIndex::Type FingerIndex, const FVector Location);
 	TouchData	TouchItem;
 	
+	UFUNCTION()
+	void ToggleLocationDisplay();
+
+	void UpdateLocationText();
+
+	FTimerHandle LocationUpdateTimer;
+
+	bool bShowLocation;
+
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UUserWidget> LocationWidgetClass;
+
+	UPROPERTY()
+	UUserWidget* LocationWidget;
+
+	UPROPERTY()
+	class UTextBlock* LocationText;
 protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
