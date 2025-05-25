@@ -37,6 +37,8 @@ ASandboxCharacter::ASandboxCharacter()
 	NearbyJeep = nullptr;
 	NearbyInteractablePawn = nullptr; // MODIFIED
 	LoadedSedanBlueprintClass = nullptr; // MODIFIED
+	bIsInVehicle = false; // Initialize vehicle tracking
+	CurrentVehicle = nullptr; // Initialize vehicle reference
 
 	// Allow character to tick
 	PrimaryActorTick.bCanEverTick = true;
@@ -442,27 +444,30 @@ void ASandboxCharacter::OnInteract()
                 *NearbyInteractablePawn->GetName(), 
                 *NearbyInteractablePawn->GetClass()->GetName());
 
-            // Attempt to set the OriginalDriver variable on the Sedan Blueprint instance
+            // Check if it's a SandboxSedan and call OnPlayerInteraction
             if (LoadedSedanBlueprintClass && NearbyInteractablePawn->IsA(LoadedSedanBlueprintClass))
             {
-                // This requires a direct include of the Sedan's generated header if you want to access its specific UPROPERTIES directly.
-                // For robust interaction without needing to recompile C++ if Sedan BP changes, 
-                // it's often better to use a BlueprintCallable function on the Sedan to set this.
-                // However, for a direct variable set like this IF the variable exists:
-                
-                // Try to find the UProperty by name and set it (more complex, reflection based)
-                // Simpler if we know the exact C++ class of the Blueprint (ASedan_C if BP is Sedan)
-                // For now, this part is tricky without direct access to ASedan_C specific members.
-                // The Sedan Blueprint will need to get the player character reference itself via GetPlayerCharacter(0) after its OnPossessed event.
-                UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Sedan recognized. Sedan BP should store OriginalDriver on its own OnPossessed."));
+                // Cast to our interface and call OnPlayerInteraction
+                if (IBPI_Interact* InteractInterface = Cast<IBPI_Interact>(NearbyInteractablePawn))
+                {
+                    InteractInterface->Execute_OnPlayerInteraction(NearbyInteractablePawn, this);
+                    UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Called OnPlayerInteraction on Sedan"));
+                }
+                else
+                {
+                    UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnInteract - Sedan does not implement BPI_Interact interface!"));
+                }
             }
-            
-            SetActorHiddenInGame(true);
-            GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-            SetActorTickEnabled(false);
-            DisableInput(PC);
+            else
+            {
+                // For non-sedan vehicles, use old logic
+                SetActorHiddenInGame(true);
+                GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                SetActorTickEnabled(false);
+                DisableInput(PC);
 
-            PC->Possess(NearbyInteractablePawn);
+                PC->Possess(NearbyInteractablePawn);
+            }
             
             NearbyInteractablePawn = nullptr; // Clear after possessing
         }

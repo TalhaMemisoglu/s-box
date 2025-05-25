@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-// #include "BPI_Interact.h" // REMOVE Interface include
+#include "BPI_Interact.h"
 #include "SandboxCharacter.generated.h" // THIS MUST BE LAST
 
 class UInputComponent;
@@ -169,6 +169,14 @@ private:
 	UClass* LoadedSedanBlueprintClass;
 
 public:
+	// Track if character is currently in a vehicle
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
+	bool bIsInVehicle;
+
+	// Store reference to the vehicle we're currently in
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
+	APawn* CurrentVehicle;
+
 	/** Returns Mesh1P subobject **/
 	USkeletalMeshComponent* GetMesh1P() const { return Mesh1P; }
 	/** Returns FirstPersonCameraComponent subobject **/
