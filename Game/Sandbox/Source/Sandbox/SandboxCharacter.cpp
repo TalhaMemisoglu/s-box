@@ -12,7 +12,12 @@
 #include "MotionControllerComponent.h"
 #include "XRMotionControllerBase.h" // for FXRMotionControllerBase::RightHandSourceId
 #include "GameFramework/CharacterMovementComponent.h"
-
+#include "DrawDebugHelpers.h" // For debug sphere
+#include "Jeep.h" 
+#include "Engine/BlueprintGeneratedClass.h" // Required for UBlueprintGeneratedClass
+#include "UObject/ConstructorHelpers.h" // Required for FClassFinder
+// #include "BPI_Interact.h" // REMOVE - No longer using interface for Sedan
+// ASedan_C is forward declared in the header, no direct include needed for the _C class usually
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
 
@@ -27,6 +32,14 @@ ASandboxCharacter::ASandboxCharacter()
 	// set our turn rates for input
 	BaseTurnRate = 45.f;
 	BaseLookUpRate = 45.f;
+
+	// Initialize interactable pointers
+	NearbyJeep = nullptr;
+	NearbyInteractablePawn = nullptr; // MODIFIED
+	LoadedSedanBlueprintClass = nullptr; // MODIFIED
+
+	// Allow character to tick
+	PrimaryActorTick.bCanEverTick = true;
 
 	// Create a CameraComponent	
 	FirstPersonCameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
@@ -45,7 +58,7 @@ ASandboxCharacter::ASandboxCharacter()
 
 	// Create a gun mesh component
 	FP_Gun = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FP_Gun"));
-	FP_Gun->SetOnlyOwnerSee(false);			// otherwise won't be visible in the multiplayer
+	FP_Gun->SetOnlyOwnerSee(true);			// only the owning player will see this mesh
 	FP_Gun->bCastDynamicShadow = false;
 	FP_Gun->CastShadow = false;
 	// FP_Gun->SetupAttachment(Mesh1P, TEXT("GripPoint"));
@@ -58,8 +71,8 @@ ASandboxCharacter::ASandboxCharacter()
 	// Default offset from the character location for projectiles to spawn
 	GunOffset = FVector(100.0f, 0.0f, 10.0f);
 
-	// Note: The ProjectileClass and the skeletal mesh/anim blueprints for Mesh1P, FP_Gun, and VR_Gun 
-	// are set in the derived blueprint asset named MyCharacter to avoid direct content references in C++.
+	// Note: The ProjectileClass and FireSound variables are set in the editor Properties list -
+	//       derived Blueprints from this class, in an Object Library Folder Assets in workflow
 
 	// Create VR Controllers.
 	R_MotionController = CreateDefaultSubobject<UMotionControllerComponent>(TEXT("R_MotionController"));
@@ -68,10 +81,9 @@ ASandboxCharacter::ASandboxCharacter()
 	L_MotionController = CreateDefaultSubobject<UMotionControllerComponent>(TEXT("L_MotionController"));
 	L_MotionController->SetupAttachment(RootComponent);
 
-	// Create a gun and attach it to the right-hand VR controller.
-	// Create a gun mesh component
+	// Create a gun mesh component for VR
 	VR_Gun = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VR_Gun"));
-	VR_Gun->SetOnlyOwnerSee(false);			// otherwise won't be visible in the multiplayer
+	VR_Gun->SetOnlyOwnerSee(true);			// only the owning player will see this mesh
 	VR_Gun->bCastDynamicShadow = false;
 	VR_Gun->CastShadow = false;
 	VR_Gun->SetupAttachment(R_MotionController);
@@ -79,17 +91,41 @@ ASandboxCharacter::ASandboxCharacter()
 
 	VR_MuzzleLocation = CreateDefaultSubobject<USceneComponent>(TEXT("VR_MuzzleLocation"));
 	VR_MuzzleLocation->SetupAttachment(VR_Gun);
-	VR_MuzzleLocation->SetRelativeLocation(FVector(0.000004, 53.999992, 10.000000));
+	VR_MuzzleLocation->SetRelativeLocation(FVector(0.000000, 0.000000, -0.000000));
 	VR_MuzzleLocation->SetRelativeRotation(FRotator(0.0f, 90.0f, 0.0f));		// Counteract the rotation of the VR gun model.
 
 	// Uncomment the following line to turn motion controllers on by default:
 	//bUsingMotionControllers = true;
+
+	// Enable this actor to receive input from Player 0
+	AutoReceiveInput = EAutoReceiveInput::Player0;
+
+	// Default path to the Sedan Blueprint - THIS SHOULD BE SET IN THE BLUEPRINT EDITOR for any derived character BP
+	SedanBlueprintAssetPath = TEXT("/Game/VehicleBP/Sedan/Sedan.Sedan_C"); // Example path, ADJUST IF YOURS IS DIFFERENT
 }
 
 void ASandboxCharacter::BeginPlay()
 {
 	// Call the base class  
 	Super::BeginPlay();
+
+	// Load the Sedan Blueprint Class
+	if (!SedanBlueprintAssetPath.IsEmpty())
+	{
+		LoadedSedanBlueprintClass = StaticLoadClass(UObject::StaticClass(), nullptr, *SedanBlueprintAssetPath);
+		if (LoadedSedanBlueprintClass)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::BeginPlay - Successfully loaded Sedan Blueprint Class: %s"), *LoadedSedanBlueprintClass->GetName());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::BeginPlay - FAILED to load Sedan Blueprint Class from path: %s. Check path in Character Blueprint! Current path: %s"), *SedanBlueprintAssetPath, *SedanBlueprintAssetPath);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::BeginPlay - SedanBlueprintAssetPath is EMPTY. Please set it in the Character Blueprint defaults."));
+	}
 
 	//Attach gun mesh component to Skeleton, doing it here because the skeleton is not yet created in the constructor
 	FP_Gun->AttachToComponent(Mesh1P, FAttachmentTransformRules(EAttachmentRule::SnapToTarget, true), TEXT("GripPoint"));
@@ -105,6 +141,13 @@ void ASandboxCharacter::BeginPlay()
 		VR_Gun->SetHiddenInGame(true, true);
 		Mesh1P->SetHiddenInGame(false, true);
 	}
+}
+
+void ASandboxCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	// UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::Tick - Frame Update"));
+	CheckForNearbySedan(); // MODIFIED: Call renamed function
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -147,17 +190,21 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 	PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
 	PlayerInputComponent->BindAxis("LookUpRate", this, &ASandboxCharacter::LookUpAtRate);
 
+	// Bind sprint events
 	PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &ASandboxCharacter::BeginSprint);
 	PlayerInputComponent->BindAction("Sprint", IE_Released, this, &ASandboxCharacter::EndSprint);
+
+	// Bind interact event
+	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &ASandboxCharacter::OnInteract);
 }
 
 void ASandboxCharacter::OnFire()
 {
 	// try and fire a projectile
-	if (ProjectileClass != nullptr)
+	if (ProjectileClass != NULL)
 	{
 		UWorld* const World = GetWorld();
-		if (World != nullptr)
+		if (World != NULL)
 		{
 			if (bUsingMotionControllers)
 			{
@@ -182,17 +229,17 @@ void ASandboxCharacter::OnFire()
 	}
 
 	// try and play the sound if specified
-	if (FireSound != nullptr)
+	if (FireSound != NULL)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation());
 	}
 
 	// try and play a firing animation if specified
-	if (FireAnimation != nullptr)
+	if (FireAnimation != NULL)
 	{
 		// Get the animation object for the arms mesh
 		UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
-		if (AnimInstance != nullptr)
+		if (AnimInstance != NULL)
 		{
 			AnimInstance->Montage_Play(FireAnimation, 1.f);
 		}
@@ -256,12 +303,11 @@ void ASandboxCharacter::EndTouch(const ETouchIndex::Type FingerIndex, const FVec
 //					if (FMath::Abs(ScaledDelta.Y) >= 4.0 / ScreenSize.Y)
 //					{
 //						TouchItem.bMoved = true;
-//						float Value = ScaledDelta.Y * BaseTurnRate;
+//						float Value = ScaledDelta.Y * BaseLookUpRate;
 //						AddControllerPitchInput(Value);
 //					}
 //					TouchItem.Location = Location;
 //				}
-//				TouchItem.Location = Location;
 //			}
 //		}
 //	}
@@ -310,4 +356,160 @@ bool ASandboxCharacter::EnableTouchscreenMovement(class UInputComponent* PlayerI
 	}
 	
 	return false;
+}
+
+// RENAMED and MODIFIED function
+void ASandboxCharacter::CheckForNearbySedan() 
+{
+    if (!LoadedSedanBlueprintClass)
+    {
+        // UE_LOG(LogTemp, Verbose, TEXT("CheckForNearbySedan - LoadedSedanBlueprintClass is NULL."));
+        NearbyInteractablePawn = nullptr;
+        return; // Don't check if the class isn't loaded
+    }
+
+    FVector Start = GetActorLocation();
+    //float InteractionRadius = 200.0f; // You can adjust this
+
+    TArray<FOverlapResult> OverlapResults;
+    FCollisionQueryParams CollisionParams;
+    CollisionParams.AddIgnoredActor(this); // Ignore self
+	FCollisionShape CollisionShape = FCollisionShape::MakeSphere(200.0f); // Radius of 200
+
+    NearbyInteractablePawn = nullptr; // Reset before check
+    // NearbyJeep = nullptr; // You might want to reset Jeep here too if not handled elsewhere
+
+	// UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::CheckForNearbySedan - Checking for overlaps."));
+
+    FCollisionObjectQueryParams ObjectQueryParams;
+    ObjectQueryParams.AddObjectTypesToQuery(ECC_WorldDynamic); 
+    ObjectQueryParams.AddObjectTypesToQuery(ECC_Vehicle); // Ensure your Sedan Blueprint is of Vehicle object type
+
+    if (GetWorld()->OverlapMultiByObjectType(
+        OverlapResults,
+        Start,
+        FQuat::Identity,
+        ObjectQueryParams,
+        CollisionShape,
+        CollisionParams))
+    {
+        // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::CheckForNearbySedan - Found %d overlapping actors."), OverlapResults.Num());
+        for (const FOverlapResult& Result : OverlapResults)
+        {
+            AActor* OverlappedActor = Result.GetActor();
+            if (OverlappedActor && OverlappedActor->IsA(LoadedSedanBlueprintClass))
+            {
+                // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::CheckForNearbySedan - Overlapped with: %s"), *OverlappedActor->GetName());
+                
+                NearbyInteractablePawn = Cast<APawn>(OverlappedActor); // Cast to APawn for Possess
+                if (NearbyInteractablePawn)
+                {
+                    // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::CheckForNearbySedan - Found and set NearbyInteractablePawn: %s"), *NearbyInteractablePawn->GetName());
+                    return; // Found our sedan
+                }
+
+                // If not a sedan, check if it's a Jeep (if you still have Jeep logic)
+                if (!NearbyInteractablePawn) { // Only check for Jeep if Sedan wasn't found yet in this loop iteration
+                    AJeep* JeepCandidate = Cast<AJeep>(OverlappedActor);
+                    if (JeepCandidate)
+                    {
+                        NearbyJeep = JeepCandidate;
+                        // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::CheckForInteractables - Found and set NearbyJeep: %s"), *NearbyJeep->GetName());
+                        // Potentially return here if Jeep is prioritized or you only want one interactable at a time
+                    }
+                }
+            }
+        }
+    }
+     // else
+    // {
+    //     // No overlaps, ensure pointers are null if nothing is found by the end of the function
+    //      NearbySedan = nullptr; // Already reset at the beginning
+    //      NearbyJeep = nullptr; // Reset if it wasn't found
+    // }
+}
+
+void ASandboxCharacter::OnInteract()
+{
+    // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - 'E' key pressed."));
+
+    if (NearbyInteractablePawn)
+    {
+        APlayerController* PC = Cast<APlayerController>(GetController());
+        if (PC)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Attempting to possess NearbyInteractablePawn: %s of class %s"), 
+                *NearbyInteractablePawn->GetName(), 
+                *NearbyInteractablePawn->GetClass()->GetName());
+
+            // Attempt to set the OriginalDriver variable on the Sedan Blueprint instance
+            if (LoadedSedanBlueprintClass && NearbyInteractablePawn->IsA(LoadedSedanBlueprintClass))
+            {
+                // This requires a direct include of the Sedan's generated header if you want to access its specific UPROPERTIES directly.
+                // For robust interaction without needing to recompile C++ if Sedan BP changes, 
+                // it's often better to use a BlueprintCallable function on the Sedan to set this.
+                // However, for a direct variable set like this IF the variable exists:
+                
+                // Try to find the UProperty by name and set it (more complex, reflection based)
+                // Simpler if we know the exact C++ class of the Blueprint (ASedan_C if BP is Sedan)
+                // For now, this part is tricky without direct access to ASedan_C specific members.
+                // The Sedan Blueprint will need to get the player character reference itself via GetPlayerCharacter(0) after its OnPossessed event.
+                UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Sedan recognized. Sedan BP should store OriginalDriver on its own OnPossessed."));
+            }
+            
+            SetActorHiddenInGame(true);
+            GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            SetActorTickEnabled(false);
+            DisableInput(PC);
+
+            PC->Possess(NearbyInteractablePawn);
+            
+            NearbyInteractablePawn = nullptr; // Clear after possessing
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnInteract - PlayerController is NULL!"));
+        }
+    }
+    else if (NearbyJeep) // Handle Jeep interaction if no Sedan is targeted
+    {
+        // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Interacting with Jeep: %s"), *NearbyJeep->GetName());
+        NearbyJeep->Interact(this); // Assuming Jeep has its own Interact() method
+    }
+    // else
+    // {
+    //     UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - No NearbySedan or NearbyJeep to interact with."));
+    // }
+}
+
+void ASandboxCharacter::OnPlayerExitVehicle(const FTransform& ExitTransform)
+{
+	UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnPlayerExitVehicle - Player is exiting vehicle. Teleporting to exit location and re-enabling."));
+
+	// Teleport character to the exit spot
+	SetActorTransform(ExitTransform, false, nullptr, ETeleportType::TeleportPhysics);
+
+	// Re-enable visibility, collision, and tick (if they were disabled)
+	SetActorHiddenInGame(false);
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	SetActorTickEnabled(true);
+
+	// Make sure the controller is set correctly on the character if it isn't already handled by Possess
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC && PC->GetPawn() != this)
+	{
+		// This might be redundant if the Possess call in the Sedan BP handles it all correctly,
+		// but as a safeguard:
+		// PC->Possess(this); // This can cause issues if called at the wrong time. The Sedan should handle possessing this character.
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnPlayerExitVehicle - Controller is possessing: %s. Character is: %s"), 
+			PC->GetPawn() ? *PC->GetPawn()->GetName() : TEXT("NULL"), 
+			*GetName());
+	}
+	else if (!PC)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnPlayerExitVehicle - PlayerController is NULL after attempting to exit vehicle!"));
+	}
+
+	// Re-enable input for this character if it was disabled
+	EnableInput(UGameplayStatics::GetPlayerController(this, 0));
 }

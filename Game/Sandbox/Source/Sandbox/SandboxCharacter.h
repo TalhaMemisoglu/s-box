@@ -4,7 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "SandboxCharacter.generated.h"
+// #include "BPI_Interact.h" // REMOVE Interface include
+#include "SandboxCharacter.generated.h" // THIS MUST BE LAST
 
 class UInputComponent;
 class USkeletalMeshComponent;
@@ -13,6 +14,8 @@ class UCameraComponent;
 class UMotionControllerComponent;
 class UAnimMontage;
 class USoundBase;
+class AJeep; // Forward declaration
+// class ASedan_C; // We will use UClass* for more robust Blueprint identification
 
 UCLASS(config=Game)
 class ASandboxCharacter : public ACharacter
@@ -55,9 +58,11 @@ public:
 	ASandboxCharacter();
 
 protected:
-	virtual void BeginPlay();
+	virtual void BeginPlay() override;
 
 public:
+	virtual void Tick(float DeltaTime) override;
+
 	/** Base turn rate, in deg/sec. Other scaling may affect final turn rate. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
 	float BaseTurnRate;
@@ -90,6 +95,9 @@ protected:
 	
 	/** Fires a projectile. */
 	void OnFire();
+
+	/** Interact with nearby objects */
+	void OnInteract();
 
 	/** Resets HMD orientation and position in VR. */
 	void OnResetVR();
@@ -142,11 +150,33 @@ protected:
 	 */
 	bool EnableTouchscreenMovement(UInputComponent* InputComponent);
 
+	// Path to your Sedan Blueprint, editable in Blueprint derived from this character
+	UPROPERTY(EditDefaultsOnly, Category = "Interaction", meta = (DisplayName = "Sedan Blueprint Path"))
+	FString SedanBlueprintAssetPath;
+
+private:
+	// Function to check for interactable objects in proximity
+	void CheckForNearbySedan();
+
+	// Pointer to a nearby jeep that can be interacted with
+	AJeep* NearbyJeep;
+
+	// Pointer to a nearby SEDAN that can be interacted with
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction", meta = (AllowPrivateAccess = "true"))
+	APawn* NearbyInteractablePawn; // Changed to APawn* for broader compatibility with Possess
+
+	// Store the loaded UClass of the Sedan Blueprint
+	UClass* LoadedSedanBlueprintClass;
+
 public:
 	/** Returns Mesh1P subobject **/
 	USkeletalMeshComponent* GetMesh1P() const { return Mesh1P; }
 	/** Returns FirstPersonCameraComponent subobject **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
+
+	// Called by the vehicle when the player exits, to restore the character's state
+	UFUNCTION(BlueprintCallable, Category = "Interaction") // Expose to BP if Sedan needs to call it directly
+	void OnPlayerExitVehicle(const FTransform& ExitTransform);
 
 };
 
