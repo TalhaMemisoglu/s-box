@@ -26,7 +26,7 @@ void ATerrainMeshActor::BeginPlay()
     if(GetLocalRole() == ROLE_Authority)
     {
         watcher = new FileWatcher();
-        watcher->Start("C:\\Users\\talha\\Desktop\\slope.bin");
+        watcher->Start("/home/mehme/slope.bin");
     }
     else {
         APlayerController * LocalController = GEngine->GetFirstLocalPlayerController(GetWorld());
