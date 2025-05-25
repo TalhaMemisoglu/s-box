@@ -18,6 +18,8 @@
 #include "UObject/ConstructorHelpers.h" // Required for FClassFinder
 // #include "BPI_Interact.h" // REMOVE - No longer using interface for Sedan
 // ASedan_C is forward declared in the header, no direct include needed for the _C class usually
+#include "Blueprint/UserWidget.h"
+#include "Components/TextBlock.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
 
@@ -104,6 +106,8 @@ ASandboxCharacter::ASandboxCharacter()
 
 	// Default path to the Sedan Blueprint - THIS SHOULD BE SET IN THE BLUEPRINT EDITOR for any derived character BP
 	SedanBlueprintAssetPath = TEXT("/Game/VehicleBP/Sedan/Sedan.Sedan_C"); // Example path, ADJUST IF YOURS IS DIFFERENT
+	bShowLocation = false;
+	LocationWidget = nullptr;
 }
 
 void ASandboxCharacter::BeginPlay()
@@ -127,6 +131,33 @@ void ASandboxCharacter::BeginPlay()
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::BeginPlay - SedanBlueprintAssetPath is EMPTY. Please set it in the Character Blueprint defaults."));
+    }
+
+	//For Health
+	CurrentHealth = MaxHealth;
+
+	if (HealthBarWidgetClass)
+	{
+		HealthBarWidget = CreateWidget<UUserWidget>(GetWorld(), HealthBarWidgetClass);
+		if (HealthBarWidget)
+		{
+			HealthBarWidget->AddToViewport();
+			UpdateHealthText(); // custom function we'll define below
+		}
+	}
+
+	//For coordinates
+	if (LocationWidgetClass)
+	{
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Get the text block reference by name
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+		}
 	}
 
 	//Attach gun mesh component to Skeleton, doing it here because the skeleton is not yet created in the constructor
@@ -212,6 +243,21 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 
 	// Bind interact event
 	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &ASandboxCharacter::OnInteract);
+
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &ASandboxCharacter::ToggleLocationDisplay);
+}
+
+void ASandboxCharacter::UpdateHealthText()
+{
+	if (!HealthBarWidget) return;
+
+	UTextBlock* HealthTextBlock = Cast<UTextBlock>(HealthBarWidget->GetWidgetFromName(TEXT("HealthBar")));
+	if (HealthTextBlock)
+	{
+		FString HealthString = FString::Printf(TEXT("%.0f / %.0f"), CurrentHealth, MaxHealth);
+		HealthTextBlock->SetText(FText::FromString(HealthString));
+	}
 }
 
 void ASandboxCharacter::OnFire()
@@ -541,4 +587,69 @@ void ASandboxCharacter::OnPlayerExitVehicle(const FTransform& ExitTransform)
 
 	// Re-enable input for this character if it was disabled
 	EnableInput(UGameplayStatics::GetPlayerController(this, 0));
+}
+
+void ASandboxCharacter::ToggleLocationDisplay()
+{
+	bShowLocation = !bShowLocation;
+
+	if (LocationWidget)
+	{
+		if (bShowLocation)
+		{
+			// Show the widget and start updating coordinates
+			LocationWidget->SetVisibility(ESlateVisibility::Visible);
+			
+			// Start the timer to update coordinates every 0.1 seconds
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &ASandboxCharacter::UpdateLocationText, 0.1f, true);
+			
+			// Update immediately
+			UpdateLocationText();
+		}
+		else
+		{
+			// Hide the widget and stop updating
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+			
+			// Clear the timer
+			GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+		}
+	}
+	else if (bShowLocation && LocationWidgetClass)
+	{
+		// Create widget if it doesn't exist and we want to show it
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+			
+			// Start updating
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &ASandboxCharacter::UpdateLocationText, 0.1f, true);
+			UpdateLocationText();
+		}
+	}
+}
+
+void ASandboxCharacter::Destroyed()
+{
+	// Clear the location update timer when character is destroyed
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+	}
+	
+	Super::Destroyed();
+}
+
+void ASandboxCharacter::UpdateLocationText()
+{
+	if (!LocationText) 
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation();
+	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
+	LocationText->SetText(FText::FromString(LocationString));
 }

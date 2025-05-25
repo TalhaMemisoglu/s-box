@@ -22,7 +22,7 @@ UCLASS(config=Game)
 class ASandboxCharacter : public ACharacter
 {
 	GENERATED_BODY()
-
+	
 	/** Pawn mesh: 1st person view (arms; seen only by self) */
 	UPROPERTY(VisibleDefaultsOnly, Category=Mesh)
 	USkeletalMeshComponent* Mesh1P;
@@ -66,7 +66,20 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	virtual void Destroyed() override;
+
 public:
+	//Health
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UUserWidget> HealthBarWidgetClass;
+
+	UUserWidget* HealthBarWidget;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float MaxHealth = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float CurrentHealth;
 
 	/** Base turn rate, in deg/sec. Other scaling may affect final turn rate. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
@@ -101,6 +114,8 @@ protected:
     UFUNCTION(Server, Reliable)
     void FireFromClient(FRotator Rotation, FVector Position);
 	
+	void UpdateHealthText();
+
 	/** Fires a projectile. */
 	void OnFire();
 
@@ -145,6 +160,23 @@ protected:
 	void TouchUpdate(const ETouchIndex::Type FingerIndex, const FVector Location);
 	TouchData	TouchItem;
 	
+	UFUNCTION()
+	void ToggleLocationDisplay();
+
+	void UpdateLocationText();
+
+	FTimerHandle LocationUpdateTimer;
+
+	bool bShowLocation;
+
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UUserWidget> LocationWidgetClass;
+
+	UPROPERTY()
+	UUserWidget* LocationWidget;
+
+	UPROPERTY()
+	class UTextBlock* LocationText;
 protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
