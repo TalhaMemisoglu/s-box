@@ -16,6 +16,7 @@ ATerrainMeshActor::ATerrainMeshActor()
     bReplicates = true;
     bAlwaysRelevant = true;
     NetUpdateFrequency = 1.0f;
+    bAllowTickBeforeBeginPlay = false;
 }
 
 void ATerrainMeshActor::BeginPlay()
@@ -65,8 +66,8 @@ void ATerrainMeshActor::SetMapSize(int32 Width, int32 Height, int32 SmootheningO
     TArray<int32> Triangles;
     Triangles.SetNum(6 * (MapWidthAbsolute - 1) * (MapHeightAbsolute - 1));
 
-    TargetHeightMap.AddDefaulted(MapHeight * MapWidth);
-    PreviousHeightMap.AddDefaulted(MapHeight * MapWidth);
+    TargetHeightMap.SetNum(MapHeight * MapWidth, true);
+    PreviousHeightMap.SetNum(MapHeight * MapWidth, true);
 
     for(int32 Y = 0; Y < MapHeightAbsolute; ++Y)
     {
