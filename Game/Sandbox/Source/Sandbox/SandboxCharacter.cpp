@@ -12,6 +12,7 @@
 #include "MotionControllerComponent.h"
 #include "XRMotionControllerBase.h" // for FXRMotionControllerBase::RightHandSourceId
 #include "GameFramework/CharacterMovementComponent.h"
+#include "DrawDebugHelpers.h"
 
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
@@ -105,6 +106,25 @@ void ASandboxCharacter::BeginPlay()
 		VR_Gun->SetHiddenInGame(true, true);
 		Mesh1P->SetHiddenInGame(false, true);
 	}
+}
+
+void ASandboxCharacter::Tick(float DeltaTime) {
+    Super::Tick(DeltaTime);
+
+    FVector Start = GetActorLocation();
+    Start.Z = 20000.0f;
+    FVector End = Start;
+    End.Z = -20000.0f;
+
+    FHitResult Result;
+
+    if(GetWorld()->LineTraceSingleByChannel(Result, Start, End, ECC_PhysicsBody, FCollisionQueryParams())) {
+        //DrawDebugLine(GetWorld(), Result.ImpactPoint, Result.ImpactPoint + Result.ImpactNormal * 50.0f, FColor::Green, false, 1, 0, 1);
+        ATerrainMeshActor * TerrainMesh = Cast<ATerrainMeshActor>(Result.GetActor());
+        if(TerrainMesh) {
+            SetActorLocation(Result.Location);
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////

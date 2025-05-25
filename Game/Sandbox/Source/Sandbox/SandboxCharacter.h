@@ -55,6 +55,8 @@ class ASandboxCharacter : public ACharacter
 public:
 	ASandboxCharacter();
 
+	virtual void Tick(float DeltaTime) override;
+
     UFUNCTION(Server, Reliable)
     void RequestMapUpdate(ATerrainMeshActor * TerrainMesh);
 
