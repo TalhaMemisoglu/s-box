@@ -21,6 +21,10 @@ class ASandboxProjectile : public AActor
 	/** Projectile movement component */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Movement, meta = (AllowPrivateAccess = "true"))
 	UProjectileMovementComponent* ProjectileMovement;
+protected:
+
+    UPROPERTY(BlueprintReadOnly)
+    APlayerController * Shooter;
 
 public:
 	ASandboxProjectile();
@@ -33,5 +37,7 @@ public:
 	USphereComponent* GetCollisionComp() const { return CollisionComp; }
 	/** Returns ProjectileMovement subobject **/
 	UProjectileMovementComponent* GetProjectileMovement() const { return ProjectileMovement; }
+
+    void SetShooter(APlayerController * Player);
 };
 

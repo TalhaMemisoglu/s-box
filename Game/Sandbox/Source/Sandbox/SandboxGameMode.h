@@ -15,19 +15,14 @@ class ASandboxGameMode : public AGameModeBase
 public:
 	ASandboxGameMode();
 
-	virtual void PostLogin(APlayerController* NewPlayer) override;
+    UFUNCTION(BlueprintCallable)
+    void SetScore(APlayerController * Player, int32 Score);
 
-protected:
-	void SpawnDelayedPlayer();
-
-	UPROPERTY(EditDefaultsOnly, Category = "GameMode Settings")
-	float PlayerSpawnDelay;
+    UFUNCTION(BlueprintCallable)
+    int32 GetScore(APlayerController * Player);
 
 private:
-	UPROPERTY()
-	TArray<APlayerController*> QueuedPlayerControllers;
-
-	FTimerHandle PlayerSpawnTimerHandle;
+    TMap<APlayerController*, int32> Scores;
 };
 
 

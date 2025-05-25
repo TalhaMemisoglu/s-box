@@ -44,3 +44,7 @@ void ASandboxProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor,
 		Destroy();
 	}
 }
+
+void ASandboxProjectile::SetShooter(APlayerController * Player) {
+    Shooter = Player;
+}
