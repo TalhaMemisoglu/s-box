@@ -133,19 +133,6 @@ void ASandboxCharacter::BeginPlay()
 		UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::BeginPlay - SedanBlueprintAssetPath is EMPTY. Please set it in the Character Blueprint defaults."));
     }
 
-	//For Health
-	CurrentHealth = MaxHealth;
-
-	if (HealthBarWidgetClass)
-	{
-		HealthBarWidget = CreateWidget<UUserWidget>(GetWorld(), HealthBarWidgetClass);
-		if (HealthBarWidget)
-		{
-			HealthBarWidget->AddToViewport();
-			UpdateHealthText(); // custom function we'll define below
-		}
-	}
-
 	//For coordinates
 	if (LocationWidgetClass)
 	{
@@ -246,18 +233,6 @@ void ASandboxCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerI
 
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &ASandboxCharacter::ToggleLocationDisplay);
-}
-
-void ASandboxCharacter::UpdateHealthText()
-{
-	if (!HealthBarWidget) return;
-
-	UTextBlock* HealthTextBlock = Cast<UTextBlock>(HealthBarWidget->GetWidgetFromName(TEXT("HealthBar")));
-	if (HealthTextBlock)
-	{
-		FString HealthString = FString::Printf(TEXT("%.0f / %.0f"), CurrentHealth, MaxHealth);
-		HealthTextBlock->SetText(FText::FromString(HealthString));
-	}
 }
 
 void ASandboxCharacter::OnFire()
