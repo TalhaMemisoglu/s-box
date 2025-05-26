@@ -20,6 +20,7 @@
 // ASedan_C is forward declared in the header, no direct include needed for the _C class usually
 #include "Blueprint/UserWidget.h"
 #include "Components/TextBlock.h"
+#include "Net/UnrealNetwork.h" // for replication
 
 DEFINE_LOG_CATEGORY_STATIC(LogFPChar, Warning, All);
 
@@ -476,60 +477,58 @@ void ASandboxCharacter::CheckForNearbySedan()
     // }
 }
 
+void ASandboxCharacter::ServerInteract_Implementation(APawn* TargetPawn)
+{
+	// Run the same logic as OnInteract but on the server (authority)
+	NearbyInteractablePawn = TargetPawn;
+	OnInteract();
+}
+
 void ASandboxCharacter::OnInteract()
 {
-    // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - 'E' key pressed."));
+	// If we're a client, forward request to server
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Log, TEXT("ASandboxCharacter::OnInteract - Client requesting server interaction"));
+		ServerInteract(NearbyInteractablePawn);
+		return;
+	}
 
-    if (NearbyInteractablePawn)
-    {
-        APlayerController* PC = Cast<APlayerController>(GetController());
-        if (PC)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Attempting to possess NearbyInteractablePawn: %s of class %s"), 
-                *NearbyInteractablePawn->GetName(), 
-                *NearbyInteractablePawn->GetClass()->GetName());
+	if (NearbyInteractablePawn)
+	{
+		APlayerController* PC = Cast<APlayerController>(GetController());
+		if (PC)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract(Server) - Attempting to possess: %s"), *NearbyInteractablePawn->GetName());
 
-            // Check if it's a SandboxSedan and call OnPlayerInteraction
-            if (LoadedSedanBlueprintClass && NearbyInteractablePawn->IsA(LoadedSedanBlueprintClass))
-            {
-                // Cast to our interface and call OnPlayerInteraction
-                if (IBPI_Interact* InteractInterface = Cast<IBPI_Interact>(NearbyInteractablePawn))
-                {
-                    InteractInterface->Execute_OnPlayerInteraction(NearbyInteractablePawn, this);
-                    UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Called OnPlayerInteraction on Sedan"));
-                }
-                else
-                {
-                    UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnInteract - Sedan does not implement BPI_Interact interface!"));
-                }
-            }
-            else
-            {
-                // For non-sedan vehicles, use old logic
-                SetActorHiddenInGame(true);
-                GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-                SetActorTickEnabled(false);
-                DisableInput(PC);
+			if (LoadedSedanBlueprintClass && NearbyInteractablePawn->IsA(LoadedSedanBlueprintClass))
+			{
+				if (IBPI_Interact* InteractInterface = Cast<IBPI_Interact>(NearbyInteractablePawn))
+				{
+					InteractInterface->Execute_OnPlayerInteraction(NearbyInteractablePawn, this);
+				}
+				else
+				{
+					UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnInteract - Sedan missing interface"));
+				}
+			}
+			else
+			{
+				// Generic pawn possess
+				SetActorHiddenInGame(true);
+				GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				SetActorTickEnabled(false);
+				DisableInput(PC);
 
-                PC->Possess(NearbyInteractablePawn);
-            }
-            
-            NearbyInteractablePawn = nullptr; // Clear after possessing
-        }
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("ASandboxCharacter::OnInteract - PlayerController is NULL!"));
-        }
-    }
-    else if (NearbyJeep) // Handle Jeep interaction if no Sedan is targeted
-    {
-        // UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - Interacting with Jeep: %s"), *NearbyJeep->GetName());
-        NearbyJeep->Interact(this); // Assuming Jeep has its own Interact() method
-    }
-    // else
-    // {
-    //     UE_LOG(LogTemp, Warning, TEXT("ASandboxCharacter::OnInteract - No NearbySedan or NearbyJeep to interact with."));
-    // }
+				PC->Possess(NearbyInteractablePawn);
+			}
+			NearbyInteractablePawn = nullptr;
+		}
+	}
+	else if (NearbyJeep)
+	{
+		NearbyJeep->Interact(this);
+	}
 }
 
 void ASandboxCharacter::OnPlayerExitVehicle(const FTransform& ExitTransform)

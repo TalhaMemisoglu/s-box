@@ -7,6 +7,7 @@
 
 class ASandboxCharacter;
 class USceneComponent;
+class UCameraComponent;
 
 UCLASS(BlueprintType, Blueprintable)
 class SANDBOX_API ASandboxSedan : public AWheeledVehicle, public IBPI_Interact
@@ -37,6 +38,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
 	bool bIsInCar;
 
+	// Camera components for internal (FPS) and chase (TPS) views
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle|Camera")
+	class UCameraComponent* InternalCameraComp;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle|Camera")
+	class UCameraComponent* ChaseCameraComp;
+
+	// Keeps track of which camera is currently active (true = internal/FPS)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle|Camera")
+	bool bUseInternalCamera;
+
 public:
 	// Interface implementation
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction")
@@ -46,4 +58,8 @@ public:
 	// Handle exit input
 	UFUNCTION()
 	void OnExitVehicle();
+
+	// Toggles between cameras when the SwitchCamera input action is pressed
+	UFUNCTION()
+	void ToggleCamera();
 }; 

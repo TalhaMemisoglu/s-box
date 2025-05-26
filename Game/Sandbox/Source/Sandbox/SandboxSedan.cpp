@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
+#include "Camera/CameraComponent.h"
 
 ASandboxSedan::ASandboxSedan()
 {
@@ -22,19 +23,76 @@ ASandboxSedan::ASandboxSedan()
 
 	// Enable input
 	AutoReceiveInput = EAutoReceiveInput::Player0;
+
+	// SECOND_EDIT: initialize camera toggle state
+	bUseInternalCamera = false;
+
+	// Enable replication
+	SetReplicates(true);
+	SetReplicateMovement(true);
 }
 
 void ASandboxSedan::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Attempt to auto-detect camera components if they have not been assigned in the editor
+	if (!InternalCameraComp || !ChaseCameraComp)
+	{
+		TArray<UCameraComponent*> FoundCameras;
+		GetComponents<UCameraComponent>(FoundCameras);
+		for (UCameraComponent* Cam : FoundCameras)
+		{
+			if (!InternalCameraComp && Cam->GetName().Contains(TEXT("Internal")))
+			{
+				InternalCameraComp = Cam;
+			}
+			else if (!ChaseCameraComp && Cam->GetName().Contains(TEXT("Chase")))
+			{
+				ChaseCameraComp = Cam;
+			}
+		}
+	}
+
+	// Ensure an initial camera state
+	if (InternalCameraComp && ChaseCameraComp)
+	{
+		if (bUseInternalCamera)
+		{
+			InternalCameraComp->SetActive(true);
+			ChaseCameraComp->SetActive(false);
+		}
+		else
+		{
+			InternalCameraComp->SetActive(false);
+			ChaseCameraComp->SetActive(true);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::BeginPlay - Camera components not fully set. InternalCameraComp=%s, ChaseCameraComp=%s"),
+			InternalCameraComp ? TEXT("valid") : TEXT("null"),
+			ChaseCameraComp ? TEXT("valid") : TEXT("null"));
+	}
 }
 
 void ASandboxSedan::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// Bind exit vehicle input
+	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::SetupPlayerInputComponent - Binding inputs (PlayerInputComponent=%s)"), *GetNameSafe(PlayerInputComponent));
+
+	// Bind exit vehicle input (E key via Interact action)
 	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &ASandboxSedan::OnExitVehicle);
+
+	// Bind camera toggle via action mapping (Tab)
+	PlayerInputComponent->BindAction("SwitchCamera", IE_Pressed, this, &ASandboxSedan::ToggleCamera);
+
+	// As a safety net, also bind the Tab key directly in case action mapping is missing
+	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &ASandboxSedan::ToggleCamera);
+
+	// Optional: controller button (Gamepad FaceButton Top / Y) as alternative
+	PlayerInputComponent->BindKey(EKeys::Gamepad_FaceButton_Top, IE_Pressed, this, &ASandboxSedan::ToggleCamera);
 }
 
 void ASandboxSedan::PossessedBy(AController* NewController)
@@ -154,4 +212,30 @@ void ASandboxSedan::OnExitVehicle()
 	// Clear references
 	StoredPlayerCharacter = nullptr;
 	StoredPlayerController = nullptr;
+}
+
+void ASandboxSedan::ToggleCamera()
+{
+	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::ToggleCamera - Called"));
+
+	if (!InternalCameraComp || !ChaseCameraComp)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::ToggleCamera - Camera components not assigned!"));
+		return;
+	}
+
+	bUseInternalCamera = !bUseInternalCamera;
+
+	if (bUseInternalCamera)
+	{
+		InternalCameraComp->SetActive(true);
+		ChaseCameraComp->SetActive(false);
+	}
+	else
+	{
+		InternalCameraComp->SetActive(false);
+		ChaseCameraComp->SetActive(true);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::ToggleCamera - Switched to %s camera"), bUseInternalCamera ? TEXT("Internal (FPS)") : TEXT("Chase (TPS)"));
 } 

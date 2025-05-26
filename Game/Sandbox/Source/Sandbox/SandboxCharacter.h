@@ -212,5 +212,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Interaction") // Expose to BP if Sedan needs to call it directly
 	void OnPlayerExitVehicle(const FTransform& ExitTransform);
 
+	// Server RPC to perform interaction
+	UFUNCTION(Server, Reliable)
+	void ServerInteract(APawn* TargetPawn);
+
 };
 
