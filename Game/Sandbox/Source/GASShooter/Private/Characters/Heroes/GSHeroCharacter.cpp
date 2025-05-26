@@ -21,6 +21,8 @@
 #include "Sound/SoundCue.h"
 #include "TimerManager.h"
 #include "UI/GSFloatingStatusBarWidget.h"
+#include "Components/TextBlock.h"
+#include "Blueprint/UserWidget.h"
 #include "Weapons/GSWeapon.h"
 
 AGSHeroCharacter::AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
@@ -89,6 +91,9 @@ AGSHeroCharacter::AGSHeroCharacter(const class FObjectInitializer& ObjectInitial
 	// Cache tags
 	KnockedDownTag = FGameplayTag::RequestGameplayTag("State.KnockedDown");
 	InteractingTag = FGameplayTag::RequestGameplayTag("State.Interacting");
+
+	bShowLocation = false;
+	LocationWidget = nullptr;
 }
 
 void AGSHeroCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -115,6 +120,7 @@ void AGSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAxis("TurnRate", this, &AGSHeroCharacter::TurnRate);
 
 	PlayerInputComponent->BindAction("TogglePerspective", IE_Pressed, this, &AGSHeroCharacter::TogglePerspective);
+	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &AGSHeroCharacter::ToggleLocationDisplay);
 
 	// Bind player input to the AbilitySystemComponent. Also called in OnRep_PlayerState because of a potential race condition.
 	BindASCInput();
@@ -636,6 +642,21 @@ FSimpleMulticastDelegate* AGSHeroCharacter::GetTargetCancelInteractionDelegate(U
 void AGSHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+
+	//For coordinates
+	if (LocationWidgetClass)
+	{
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Get the text block reference by name
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+		}
+	}
 
 	StartingFirstPersonMeshLocation = FirstPersonMesh->GetRelativeLocation();
 
@@ -1177,4 +1198,58 @@ void AGSHeroCharacter::ClientSyncCurrentWeapon_Implementation(AGSWeapon* InWeapo
 bool AGSHeroCharacter::ClientSyncCurrentWeapon_Validate(AGSWeapon* InWeapon)
 {
 	return true;
+}
+
+void AGSHeroCharacter::ToggleLocationDisplay()
+{
+	bShowLocation = !bShowLocation;
+
+	if (LocationWidget)
+	{
+		if (bShowLocation)
+		{
+			// Show the widget and start updating coordinates
+			LocationWidget->SetVisibility(ESlateVisibility::Visible);
+
+			// Start the timer to update coordinates every 0.1 seconds
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &AGSHeroCharacter::UpdateLocationText, 0.1f, true);
+
+			// Update immediately
+			UpdateLocationText();
+		}
+		else
+		{
+			// Hide the widget and stop updating
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Clear the timer
+			GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+		}
+	}
+	else if (bShowLocation && LocationWidgetClass)
+	{
+		// Create widget if it doesn't exist and we want to show it
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+
+			// Start updating
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &AGSHeroCharacter::UpdateLocationText, 0.1f, true);
+			UpdateLocationText();
+		}
+	}
+}
+
+void AGSHeroCharacter::UpdateLocationText()
+{
+	if (!LocationText)
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation();
+	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
+	LocationText->SetText(FText::FromString(LocationString));
 }
