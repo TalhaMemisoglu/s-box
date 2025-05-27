@@ -45,7 +45,7 @@ protected:
     void SendMapData(float Time, const TArray<int8> &  Data);
 
 public:
-    UFUNCTION(Server, Reliable)
+    UFUNCTION(BlueprintCallable, Server, Reliable)
     void RequestMapUpdate();
 
 	// Sets default values for this actor's properties

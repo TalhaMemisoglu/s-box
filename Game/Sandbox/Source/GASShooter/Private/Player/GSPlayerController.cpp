@@ -221,10 +221,3 @@ bool AGSPlayerController::ServerKill_Validate()
 {
 	return true;
 }
-
-void AGSPlayerController::Tick(float DeltaTime) {
-	if (UIHUDWidget)
-	{
-		UIHUDWidget->UpdateScoreboard();
-	}
-}

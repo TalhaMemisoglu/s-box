@@ -75,8 +75,6 @@ protected:
 	// Server only
 	virtual void OnPossess(APawn* InPawn) override;
 
-	virtual void Tick(float DeltaTime) override;
-
 	virtual void OnRep_PlayerState() override;
 
 	UFUNCTION(Exec)
