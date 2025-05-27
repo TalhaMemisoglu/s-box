@@ -12,6 +12,7 @@ UFallProtectionComponent::UFallProtectionComponent()
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
+    bClipBelow = false;
 
 	// ...
 }
@@ -53,6 +54,28 @@ void UFallProtectionComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
                 }
                 else {
                     OwnerActor->SetActorLocation(Result.ImpactPoint);
+                }
+            }
+        }
+
+        if(bClipBelow) {
+            Start = Pos;
+            Start.Z -= 5.0f;
+            End = Pos;
+            End.Z = -20000.0f;
+
+            if(GetWorld()->LineTraceSingleByChannel(Result, Start, End, ECC_PhysicsBody, FCollisionQueryParams())) {
+                //DrawDebugLine(GetWorld(), Result.ImpactPoint, Result.ImpactPoint + Result.ImpactNormal * 500.0f, FColor::Green, false, 1, 0, 1);
+                ATerrainMeshActor * TerrainMesh = Cast<ATerrainMeshActor>(Result.GetActor());
+                if(TerrainMesh) {
+                    UMeshComponent * MeshComponent = OwnerActor->FindComponentByClass<UMeshComponent>();
+                    if(MeshComponent && MeshComponent->IsSimulatingPhysics()) {
+                        //GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::White, FString::Printf(TEXT("%f"), Pos.Z));
+                        MeshComponent->SetAllPhysicsPosition(Result.ImpactPoint);
+                    }
+                    else {
+                        OwnerActor->SetActorLocation(Result.ImpactPoint);
+                    }
                 }
             }
         }
