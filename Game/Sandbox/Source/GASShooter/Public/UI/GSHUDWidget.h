@@ -125,4 +125,7 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
 	void SetGold(int32 Gold);
+
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable)
+	void UpdateScoreboard();
 };
