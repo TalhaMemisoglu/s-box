@@ -121,7 +121,7 @@ void AGSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 	PlayerInputComponent->BindAction("TogglePerspective", IE_Pressed, this, &AGSHeroCharacter::TogglePerspective);
 	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &AGSHeroCharacter::ToggleLocationDisplay);
-
+	PlayerInputComponent->BindAction("ESCMenu", IE_Pressed, this, &AGSHeroCharacter::ToggleMenu);
 	// Bind player input to the AbilitySystemComponent. Also called in OnRep_PlayerState because of a potential race condition.
 	BindASCInput();
 }
@@ -1252,4 +1252,48 @@ void AGSHeroCharacter::UpdateLocationText()
 	FVector Location = GetActorLocation();
 	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
 	LocationText->SetText(FText::FromString(LocationString));
+}
+
+void AGSHeroCharacter::ToggleMenu()
+{
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	if (!MenuInGameWidget && MenuInGameWidgetClass)
+	{
+		// Create the widget if it doesn't exist
+		MenuInGameWidget = CreateWidget<UUserWidget>(GetWorld(), MenuInGameWidgetClass);
+		if (MenuInGameWidget)
+		{
+			MenuInGameWidget->AddToViewport();
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Visible);
+			
+			// Show cursor and enable input
+			PC->bShowMouseCursor = true;
+			PC->SetInputMode(FInputModeGameAndUI());
+		}
+	}
+	else if (MenuInGameWidget)
+	{
+		// Toggle visibility
+		if (MenuInGameWidget->IsVisible())
+		{
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Hidden);
+			
+			// Hide cursor and disable input
+			PC->bShowMouseCursor = false;
+			PC->SetInputMode(FInputModeGameOnly());
+		}
+		else
+		{
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Visible);
+			
+			// Show cursor and enable input
+			PC->bShowMouseCursor = true;
+			PC->SetInputMode(FInputModeGameAndUI());
+		}
+	}
 }
