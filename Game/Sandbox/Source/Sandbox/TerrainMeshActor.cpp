@@ -24,6 +24,7 @@ void ATerrainMeshActor::BeginPlay()
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
     UpdateTime = 0.0f;
+    GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(0, 0, 0), FRotator(), FActorSpawnParameters());
     if(GetLocalRole() == ROLE_Authority)
     {
         watcher = new FileWatcher();

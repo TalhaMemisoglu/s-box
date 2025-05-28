@@ -48,6 +48,9 @@ public:
     UFUNCTION(BlueprintCallable, Server, Reliable)
     void RequestMapUpdate();
 
+	UPROPERTY(EditAnywhere, Category=Sekiller)
+	TSubclassOf<class AActor> Dikdortgen;
+
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();
 
