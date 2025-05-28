@@ -1,12 +1,16 @@
 #include "SandboxSedan.h"
-#include "SandboxCharacter.h"
+#include "GameFramework/Pawn.h"
 #include "Components/SceneComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
-#include "Camera/CameraComponent.h"
+#include "Engine/World.h"
+#include "AbilitySystemComponent.h"
+#include "GASShooter/Public/Characters/Heroes/GSHeroCharacter.h"
+#include "GASShooter/Public/Weapons/GSWeapon.h"
+#include "Components/SkeletalMeshComponent.h"
 
 ASandboxSedan::ASandboxSedan()
 {
@@ -20,79 +24,25 @@ ASandboxSedan::ASandboxSedan()
 	StoredPlayerCharacter = nullptr;
 	StoredPlayerController = nullptr;
 	bIsInCar = false;
+	ReEntryCooldownTime = 2.0f; // 2 second cooldown
+	LastExitTime = -10.0f; // Initialize to allow immediate first entry
 
 	// Enable input
 	AutoReceiveInput = EAutoReceiveInput::Player0;
-
-	// SECOND_EDIT: initialize camera toggle state
-	bUseInternalCamera = false;
-
-	// Enable replication
-	SetReplicates(true);
-	SetReplicateMovement(true);
 }
 
 void ASandboxSedan::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// Attempt to auto-detect camera components if they have not been assigned in the editor
-	if (!InternalCameraComp || !ChaseCameraComp)
-	{
-		TArray<UCameraComponent*> FoundCameras;
-		GetComponents<UCameraComponent>(FoundCameras);
-		for (UCameraComponent* Cam : FoundCameras)
-		{
-			if (!InternalCameraComp && Cam->GetName().Contains(TEXT("Internal")))
-			{
-				InternalCameraComp = Cam;
-			}
-			else if (!ChaseCameraComp && Cam->GetName().Contains(TEXT("Chase")))
-			{
-				ChaseCameraComp = Cam;
-			}
-		}
-	}
-
-	// Ensure an initial camera state
-	if (InternalCameraComp && ChaseCameraComp)
-	{
-		if (bUseInternalCamera)
-		{
-			InternalCameraComp->SetActive(true);
-			ChaseCameraComp->SetActive(false);
-		}
-		else
-		{
-			InternalCameraComp->SetActive(false);
-			ChaseCameraComp->SetActive(true);
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::BeginPlay - Camera components not fully set. InternalCameraComp=%s, ChaseCameraComp=%s"),
-			InternalCameraComp ? TEXT("valid") : TEXT("null"),
-			ChaseCameraComp ? TEXT("valid") : TEXT("null"));
-	}
 }
 
 void ASandboxSedan::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::SetupPlayerInputComponent - Binding inputs (PlayerInputComponent=%s)"), *GetNameSafe(PlayerInputComponent));
-
-	// Bind exit vehicle input (E key via Interact action)
-	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &ASandboxSedan::OnExitVehicle);
-
-	// Bind camera toggle via action mapping (Tab)
-	PlayerInputComponent->BindAction("SwitchCamera", IE_Pressed, this, &ASandboxSedan::ToggleCamera);
-
-	// As a safety net, also bind the Tab key directly in case action mapping is missing
-	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &ASandboxSedan::ToggleCamera);
-
-	// Optional: controller button (Gamepad FaceButton Top / Y) as alternative
-	PlayerInputComponent->BindKey(EKeys::Gamepad_FaceButton_Top, IE_Pressed, this, &ASandboxSedan::ToggleCamera);
+	// Bind exit vehicle input - support both E and F keys
+	PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &ASandboxSedan::RequestExitVehicle);
+	PlayerInputComponent->BindAction("VehicleInteract", IE_Pressed, this, &ASandboxSedan::RequestExitVehicle);
 }
 
 void ASandboxSedan::PossessedBy(AController* NewController)
@@ -105,31 +55,22 @@ void ASandboxSedan::PossessedBy(AController* NewController)
 	{
 		StoredPlayerController = PC;
 		
-		// Get the player character from the controller's previous pawn
+		// Get the player pawn the controller was originally possessing
 		APawn* PreviousPawn = PC->GetPawn();
 		if (PreviousPawn && PreviousPawn != this)
 		{
-			StoredPlayerCharacter = Cast<ASandboxCharacter>(PreviousPawn);
+			StoredPlayerCharacter = PreviousPawn;
 		}
 		
-		// If that didn't work, try getting from world
 		if (!StoredPlayerCharacter)
 		{
-			StoredPlayerCharacter = Cast<ASandboxCharacter>(UGameplayStatics::GetPlayerCharacter(this, 0));
+			StoredPlayerCharacter = UGameplayStatics::GetPlayerPawn(this, 0);
 		}
 		
 		if (StoredPlayerCharacter)
 		{
-			// Mark character as in vehicle
-			StoredPlayerCharacter->bIsInVehicle = true;
-			StoredPlayerCharacter->CurrentVehicle = this;
-			bIsInCar = true; // Set this to true when possessed
-			
-			UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::PossessedBy - Player entered vehicle, bIsInCar set to true"));
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("ASandboxSedan::PossessedBy - Could not find StoredPlayerCharacter!"));
+			bIsInCar = true;
+			UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::PossessedBy - Player entered vehicle (generic pawn)"));
 		}
 	}
 }
@@ -143,15 +84,23 @@ void ASandboxSedan::OnPlayerInteraction_Implementation(APawn* InteractingPawn)
 		return;
 	}
 
-	// Player is entering vehicle
-	ASandboxCharacter* PlayerCharacter = Cast<ASandboxCharacter>(InteractingPawn);
-	if (!PlayerCharacter)
+	// Check cooldown to prevent immediate re-entry
+	float CurrentTime = GetWorld()->GetTimeSeconds();
+	if (CurrentTime - LastExitTime < ReEntryCooldownTime)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnPlayerInteraction - InteractingPawn is not a SandboxCharacter"));
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnPlayerInteraction - Still in cooldown period, ignoring entry attempt"));
 		return;
 	}
 
-	APlayerController* PC = Cast<APlayerController>(PlayerCharacter->GetController());
+	// Player is entering vehicle
+	APawn* PlayerPawn = InteractingPawn;
+	if (!PlayerPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnPlayerInteraction - InteractingPawn is null"));
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(PlayerPawn->GetController());
 	if (!PC)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ASandboxSedan::OnPlayerInteraction - No PlayerController found"));
@@ -159,29 +108,56 @@ void ASandboxSedan::OnPlayerInteraction_Implementation(APawn* InteractingPawn)
 	}
 
 	// Store references
-	StoredPlayerCharacter = PlayerCharacter;
+	StoredPlayerCharacter = PlayerPawn;
 	StoredPlayerController = PC;
 
-	// Hide and disable the character
-	PlayerCharacter->SetActorHiddenInGame(true);
-	PlayerCharacter->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PlayerCharacter->SetActorTickEnabled(false);
-	PlayerCharacter->DisableInput(PC);
+	// Call Multicast to update visuals on server and all clients BEFORE hiding the pawn locally on server.
+	Multicast_UpdateCharacterVisualsOnEnter(PlayerPawn, true);
 
-	// Mark as in vehicle
-	PlayerCharacter->bIsInVehicle = true;
-	PlayerCharacter->CurrentVehicle = this;
-	bIsInCar = true;
+	// Hide and disable the character
+	PlayerPawn->SetActorHiddenInGame(true);
+	if (UCapsuleComponent* Cap = PlayerPawn->FindComponentByClass<UCapsuleComponent>())
+	{
+		Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	// Keep tick enabled so ongoing AbilitySystem tasks don't dereference null pointers
+	if (UAbilitySystemComponent* ASC = PlayerPawn->FindComponentByClass<UAbilitySystemComponent>())
+	{
+		ASC->CancelAllAbilities();
+	}
+	PlayerPawn->DisableInput(PC);
 
 	// Possess the vehicle
 	PC->Possess(this);
+	EnableInput(PC);
+
+	bIsInCar = true;
 
 	UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnPlayerInteraction - Player entered vehicle successfully"));
 }
 
-void ASandboxSedan::OnExitVehicle()
+void ASandboxSedan::RequestExitVehicle()
 {
-	UE_LOG(LogTemp, Error, TEXT("ASandboxSedan::OnExitVehicle - E KEY PRESSED!"));
+	if (GetLocalRole() < ROLE_Authority) // If client
+	{
+		Server_OnExitVehicle();
+	}
+	else // If server or standalone
+	{
+		Server_OnExitVehicle_Implementation();
+	}
+}
+
+bool ASandboxSedan::Server_OnExitVehicle_Validate()
+{
+	// Basic validation: Check if we are actually in car and have references.
+	// More sophisticated checks could be added (e.g., is vehicle moving too fast?)
+	return bIsInCar && StoredPlayerCharacter && StoredPlayerController;
+}
+
+void ASandboxSedan::Server_OnExitVehicle_Implementation()
+{
+	UE_LOG(LogTemp, Error, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - EXIT KEY PRESSED (E or F)!"));
 	UE_LOG(LogTemp, Warning, TEXT("Debug: bIsInCar=%s, StoredPlayerCharacter=%s, StoredPlayerController=%s"), 
 		bIsInCar ? TEXT("true") : TEXT("false"),
 		StoredPlayerCharacter ? TEXT("valid") : TEXT("null"),
@@ -189,53 +165,135 @@ void ASandboxSedan::OnExitVehicle()
 	
 	if (!bIsInCar || !StoredPlayerCharacter || !StoredPlayerController)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnExitVehicle - Cannot exit: not in car or missing references"));
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - Cannot exit: not in car or missing references"));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::OnExitVehicle - Player exiting vehicle"));
+	UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - Player exiting vehicle"));
 
-	// Calculate exit transform
+	// Calculate exit transform - move it further away from the vehicle
 	FTransform ExitTransform = ExitPoint->GetComponentTransform();
+	FVector ExitLocation = ExitTransform.GetLocation();
 	
-	// Mark as not in vehicle
-	StoredPlayerCharacter->bIsInVehicle = false;
-	StoredPlayerCharacter->CurrentVehicle = nullptr;
-	bIsInCar = false;
+	// Move the exit location further from the vehicle to avoid immediate re-entry
+	FVector VehicleLocation = GetActorLocation();
+	FVector AwayDirection = (ExitLocation - VehicleLocation).GetSafeNormal();
+	if (AwayDirection.IsNearlyZero())
+	{
+		// If exit point is at vehicle center, use right vector
+		AwayDirection = GetActorRightVector();
+	}
+	ExitLocation = VehicleLocation + (AwayDirection * 400.0f); // Move 400 units away
+	ExitTransform.SetLocation(ExitLocation);
 
-	// Possess the character back
-	StoredPlayerController->Possess(StoredPlayerCharacter);
+	// Store references before clearing them
+	APawn* CharacterToRestore = StoredPlayerCharacter;
+	APlayerController* ControllerToRestore = StoredPlayerController;
 
-	// Call the character's exit function to restore state and teleport
-	StoredPlayerCharacter->OnPlayerExitVehicle(ExitTransform);
+	// If the character being restored is a GSHeroCharacter (or our SandboxHeroCharacter),
+	// reset its bASCInputBound flag. This will allow BindASCInput() to re-bind abilities
+	// when the character is re-possessed.
+	AGSHeroCharacter* GSHero = Cast<AGSHeroCharacter>(CharacterToRestore);
+	if (GSHero)
+	{
+		GSHero->bASCInputBound = false;
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - Reset bASCInputBound for GSHeroCharacter prior to re-possession."));
+	}
 
-	// Clear references
+	// Clear references first to prevent re-entry
 	StoredPlayerCharacter = nullptr;
 	StoredPlayerController = nullptr;
+	bIsInCar = false;
+
+	// Disable input on this vehicle first
+	DisableInput(ControllerToRestore);
+
+	// Possess the character back
+	if (ControllerToRestore && CharacterToRestore)
+	{
+		ControllerToRestore->Possess(CharacterToRestore);
+
+		// Restore basic state generically
+		CharacterToRestore->SetActorHiddenInGame(false);
+		if (UCapsuleComponent* Cap = CharacterToRestore->FindComponentByClass<UCapsuleComponent>())
+		{
+			Cap->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		}
+		CharacterToRestore->SetActorEnableCollision(true);
+		CharacterToRestore->SetActorTransform(ExitTransform, false, nullptr, ETeleportType::TeleportPhysics);
+		
+		AGSHeroCharacter* RestoredHero = Cast<AGSHeroCharacter>(CharacterToRestore);
+		if (RestoredHero)
+		{
+			// Restore shadow casting for character's main mesh
+			if (USkeletalMeshComponent* CharacterMesh3P = RestoredHero->GetMesh())
+			{
+				CharacterMesh3P->SetCastShadow(true); // Assuming it should cast shadows normally
+				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan: Re-enabled 3P mesh shadow for %s"), *RestoredHero->GetName());
+			}
+
+			// The character's PossessedBy -> SetupStartupPerspective -> SetPerspective flow
+            // should handle re-equipping the weapon and setting its visibility correctly.
+            // If GetCurrentWeapon() exists, SetPerspective will call Equip() on it.
+			UE_LOG(LogTemp, Log, TEXT("ASandboxSedan: Character's SetPerspective will handle weapon re-equip for %s"), *RestoredHero->GetName());
+		}
+
+		// Re-enable input on the character
+		CharacterToRestore->EnableInput(ControllerToRestore);
+		
+		// The engine will call SetupPlayerInputComponent on the CharacterToRestore as part of the possession process.
+		// For GSHeroCharacter, its overridden SetupPlayerInputComponent will call BindASCInput().
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - Character possession will handle input component setup."));
+		
+		// Set the exit time for cooldown
+		LastExitTime = GetWorld()->GetTimeSeconds();
+		
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Server_OnExitVehicle_Implementation - Successfully exited vehicle and restored character"));
+	}
 }
 
-void ASandboxSedan::ToggleCamera()
+void ASandboxSedan::Multicast_UpdateCharacterVisualsOnEnter_Implementation(APawn* CharacterPawn, bool bEnteringVehicle)
 {
-	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::ToggleCamera - Called"));
-
-	if (!InternalCameraComp || !ChaseCameraComp)
+	AGSHeroCharacter* HeroCharacter = Cast<AGSHeroCharacter>(CharacterPawn);
+	if (!HeroCharacter) 
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::ToggleCamera - Camera components not assigned!"));
+		UE_LOG(LogTemp, Warning, TEXT("ASandboxSedan::Multicast_UpdateCharacterVisualsOnEnter - Passed CharacterPawn is not a GSHeroCharacter or is null."));
 		return;
 	}
 
-	bUseInternalCamera = !bUseInternalCamera;
-
-	if (bUseInternalCamera)
+	if (bEnteringVehicle) // Player is entering
 	{
-		InternalCameraComp->SetActive(true);
-		ChaseCameraComp->SetActive(false);
-	}
-	else
-	{
-		InternalCameraComp->SetActive(false);
-		ChaseCameraComp->SetActive(true);
-	}
+		// Unequip current weapon to hide its meshes and handle state.
+		// This should ideally be done for the locally controlled player or on the server.
+		// Simulated proxies might not need to run the full UnEquip logic if it's complex,
+		// but weapon visibility should be handled.
+		if (HeroCharacter->IsLocallyControlled() || GetLocalRole() == ROLE_Authority) // Check if we are server or the owning client
+		{
+			if (AGSWeapon* CurrentWeapon = HeroCharacter->GetCurrentWeapon())
+			{
+				CurrentWeapon->UnEquip(); // UnEquip should handle hiding meshes
+				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast %s): Unequipped weapon for %s"), GetLocalRole() == ROLE_Authority ? TEXT("Server") : TEXT("Client"), *HeroCharacter->GetName());
+			}
+		}
+		else if (HeroCharacter->GetLocalRole() == ENetRole::ROLE_SimulatedProxy)
+		{
+		    // For simulated proxies, we just want to ensure the weapon's meshes are hidden if it has one.
+            // The full UnEquip() might have gameplay logic we don't want to run on a non-owning client.
+            if (AGSWeapon* CurrentWeapon = HeroCharacter->GetCurrentWeapon())
+            { 
+                // Access weapon meshes directly and hide them
+                if(USkeletalMeshComponent* WeaponMesh1P = CurrentWeapon->GetWeaponMesh1P()) { WeaponMesh1P->SetVisibility(false, true); }
+                if(USkeletalMeshComponent* WeaponMesh3P = CurrentWeapon->GetWeaponMesh3P()) { WeaponMesh3P->SetVisibility(false, true); }
+				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast SimulatedProxy): Hid weapon meshes for %s"), *HeroCharacter->GetName());
+            }
+		}
 
-	UE_LOG(LogTemp, Log, TEXT("ASandboxSedan::ToggleCamera - Switched to %s camera"), bUseInternalCamera ? TEXT("Internal (FPS)") : TEXT("Chase (TPS)"));
+		// Prevent character's main mesh from casting shadows while hidden
+		if (USkeletalMeshComponent* CharacterMesh3P = HeroCharacter->GetMesh())
+		{
+			CharacterMesh3P->SetCastShadow(false);
+			UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast %s): Disabled 3P mesh shadow for %s"), GetLocalRole() == ROLE_Authority ? TEXT("Server") : TEXT("Client"), *HeroCharacter->GetName());
+		}
+	}
+	// Exiting visuals (shadows, weapon re-equip) are handled by the server-driven repossession and SetPerspective logic.
 } 

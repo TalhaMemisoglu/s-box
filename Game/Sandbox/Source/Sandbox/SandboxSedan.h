@@ -7,7 +7,6 @@
 
 class ASandboxCharacter;
 class USceneComponent;
-class UCameraComponent;
 
 UCLASS(BlueprintType, Blueprintable)
 class SANDBOX_API ASandboxSedan : public AWheeledVehicle, public IBPI_Interact
@@ -26,9 +25,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
 	USceneComponent* ExitPoint;
 
-	// Store the original player character
+	// Store the original player pawn (supports any character BP)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
-	ASandboxCharacter* StoredPlayerCharacter;
+	APawn* StoredPlayerCharacter;
 
 	// Store the original player controller
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
@@ -38,16 +37,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
 	bool bIsInCar;
 
-	// Camera components for internal (FPS) and chase (TPS) views
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle|Camera")
-	class UCameraComponent* InternalCameraComp;
+	// Cooldown timer to prevent immediate re-entry
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle")
+	float ReEntryCooldownTime;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle|Camera")
-	class UCameraComponent* ChaseCameraComp;
-
-	// Keeps track of which camera is currently active (true = internal/FPS)
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle|Camera")
-	bool bUseInternalCamera;
+	// Track when last exit occurred
+	float LastExitTime;
 
 public:
 	// Interface implementation
@@ -57,9 +52,14 @@ public:
 
 	// Handle exit input
 	UFUNCTION()
-	void OnExitVehicle();
+	void RequestExitVehicle(); // Client calls this
 
-	// Toggles between cameras when the SwitchCamera input action is pressed
-	UFUNCTION()
-	void ToggleCamera();
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_OnExitVehicle(); // Server executes this
+	void Server_OnExitVehicle_Implementation();
+	bool Server_OnExitVehicle_Validate();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_UpdateCharacterVisualsOnEnter(APawn* CharacterPawn, bool bEnteringVehicle);
+	void Multicast_UpdateCharacterVisualsOnEnter_Implementation(APawn* CharacterPawn, bool bEnteringVehicle);
 }; 
