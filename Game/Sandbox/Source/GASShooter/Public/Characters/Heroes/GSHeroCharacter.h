@@ -189,35 +189,6 @@ public:
 	FSimpleMulticastDelegate* GetTargetCancelInteractionDelegate(UPrimitiveComponent* InteractionComponent) override;
 
 public:
-	UFUNCTION()
-	void ToggleLocationDisplay();
-
-	void UpdateLocationText();
-
-	FTimerHandle LocationUpdateTimer;
-
-	bool bShowLocation;
-
-	UPROPERTY(EditAnywhere, Category = "UI")
-	TSubclassOf<UUserWidget> LocationWidgetClass;
-
-	UPROPERTY()
-	UUserWidget* LocationWidget;
-
-	UPROPERTY()
-	class UTextBlock* LocationText;
-
-	UPROPERTY(EditAnywhere, Category = "UI")
-	TSubclassOf<UUserWidget> MenuInGameWidgetClass;
-
-	UPROPERTY()
-	UUserWidget* MenuInGameWidget;
-
-	UFUNCTION()
-	void ToggleMenu();
-
-protected:
-
 	UPROPERTY(BlueprintReadOnly, Category = "GASShooter|GSHeroCharacter")
 	FVector StartingThirdPersonMeshLocation;
 
