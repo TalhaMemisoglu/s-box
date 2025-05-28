@@ -45,8 +45,11 @@ protected:
     void SendMapData(float Time, const TArray<int8> &  Data);
 
 public:
-    UFUNCTION(Server, Reliable)
+    UFUNCTION(BlueprintCallable, Server, Reliable)
     void RequestMapUpdate();
+
+	UPROPERTY(EditAnywhere, Category=Sekiller)
+	TSubclassOf<class AActor> Dikdortgen;
 
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();

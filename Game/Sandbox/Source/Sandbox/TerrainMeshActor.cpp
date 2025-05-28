@@ -5,7 +5,7 @@
 #include "DrawDebugHelpers.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/GameStateBase.h"
-#include "SandboxCharacter.h"
+#include "MapUpdateHelper.h"
 
 ATerrainMeshActor::ATerrainMeshActor()
 {
@@ -24,6 +24,7 @@ void ATerrainMeshActor::BeginPlay()
     Super::BeginPlay();
     SetMapSize(100, 100, 15, 20.0f, 0.2f);
     UpdateTime = 0.0f;
+    GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(0, 0, 0), FRotator(), FActorSpawnParameters());
     if(GetLocalRole() == ROLE_Authority)
     {
         watcher = new FileWatcher();
@@ -32,9 +33,12 @@ void ATerrainMeshActor::BeginPlay()
     else {
         APlayerController * LocalController = GEngine->GetFirstLocalPlayerController(GetWorld());
         if(LocalController) {
-            ASandboxCharacter * Character = Cast<ASandboxCharacter>(LocalController->GetPawn());
-            if(Character) {
-                Character->RequestMapUpdate(this);
+            APawn * Pawn = LocalController->GetPawn();
+            if(Pawn) {
+                UMapUpdateHelper * Helper = Pawn->FindComponentByClass<UMapUpdateHelper>();
+                if(Helper) {
+                    Helper->RequestMapUpdate(this);
+                }
             }
         }
     }
