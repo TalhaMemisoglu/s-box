@@ -69,18 +69,6 @@ protected:
 	virtual void Destroyed() override;
 
 public:
-	//Health
-	UPROPERTY(EditAnywhere, Category = "UI")
-	TSubclassOf<UUserWidget> HealthBarWidgetClass;
-
-	UUserWidget* HealthBarWidget;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
-	float MaxHealth = 100.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
-	float CurrentHealth;
-
 	/** Base turn rate, in deg/sec. Other scaling may affect final turn rate. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera)
 	float BaseTurnRate;
@@ -113,8 +101,6 @@ protected:
 
     UFUNCTION(Server, Reliable)
     void FireFromClient(FRotator Rotation, FVector Position);
-	
-	void UpdateHealthText();
 
 	/** Fires a projectile. */
 	void OnFire();
@@ -225,6 +211,10 @@ public:
 	// Called by the vehicle when the player exits, to restore the character's state
 	UFUNCTION(BlueprintCallable, Category = "Interaction") // Expose to BP if Sedan needs to call it directly
 	void OnPlayerExitVehicle(const FTransform& ExitTransform);
+
+	// Server RPC to perform interaction
+	UFUNCTION(Server, Reliable)
+	void ServerInteract(APawn* TargetPawn);
 
 };
 
