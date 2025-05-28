@@ -21,11 +21,12 @@
 #include "Sound/SoundCue.h"
 #include "TimerManager.h"
 #include "UI/GSFloatingStatusBarWidget.h"
+#include "Components/TextBlock.h"
+#include "Blueprint/UserWidget.h"
 #include "Weapons/GSWeapon.h"
 
 AGSHeroCharacter::AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
-	bHasBeenInitialized = false;
 	BaseTurnRate = 45.0f;
 	BaseLookUpRate = 45.0f;
 	bStartInFirstPersonPerspective = true;
@@ -42,7 +43,10 @@ AGSHeroCharacter::AGSHeroCharacter(const class FObjectInitializer& ObjectInitial
 	CurrentWeaponTag = NoWeaponTag;
 	Inventory = FGSHeroInventory();
 	ReviveDuration = 4.0f;
-	
+
+	bShowLocation = false;
+	LocationWidget = nullptr;
+
 	ThirdPersonCameraBoom = CreateDefaultSubobject<USpringArmComponent>(FName("CameraBoom"));
 	ThirdPersonCameraBoom->SetupAttachment(RootComponent);
 	ThirdPersonCameraBoom->bUsePawnControlRotation = true;
@@ -117,6 +121,9 @@ void AGSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 	PlayerInputComponent->BindAction("TogglePerspective", IE_Pressed, this, &AGSHeroCharacter::TogglePerspective);
 
+	PlayerInputComponent->BindAction("ToggleLocation", IE_Pressed, this, &AGSHeroCharacter::ToggleLocationDisplay);
+	PlayerInputComponent->BindAction("ESCMenu", IE_Pressed, this, &AGSHeroCharacter::ToggleMenu);
+
 	// Bind player input to the AbilitySystemComponent. Also called in OnRep_PlayerState because of a potential race condition.
 	BindASCInput();
 }
@@ -143,23 +150,13 @@ void AGSHeroCharacter::PossessedBy(AController* NewController)
 
 		AmmoAttributeSet = PS->GetAmmoAttributeSet();
 
-		if (!bHasBeenInitialized)
-		{
-			// If we handle players disconnecting and rejoining in the future, we'll have to change this so that possession from rejoining doesn't reset attributes.
-			// For now assume possession = spawn/respawn.
-			InitializeAttributes();
-			AddStartupEffects();
-			AddCharacterAbilities(); // If this grants default items/ammo that should only happen once
-			bHasBeenInitialized = true;
-			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::PossessedBy - First time initialization of attributes and abilities."));
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::PossessedBy - Attributes and abilities already initialized, skipping full re-init."));
-		}
+		// If we handle players disconnecting and rejoining in the future, we'll have to change this so that possession from rejoining doesn't reset attributes.
+		// For now assume possession = spawn/respawn.
+		InitializeAttributes();
 
-		// Refresh HUD, ASC actor info etc. even on re-possession
-		PS->GetAbilitySystemComponent()->InitAbilityActorInfo(PS, this);
+		AddStartupEffects();
+
+		AddCharacterAbilities();
 
 		AGSPlayerController* PC = Cast<AGSPlayerController>(GetController());
 		if (PC)
@@ -583,7 +580,7 @@ bool AGSHeroCharacter::IsAvailableForInteraction_Implementation(UPrimitiveCompon
 	{
 		return true;
 	}
-	
+
 	return IGSInteractable::IsAvailableForInteraction_Implementation(InteractionComponent);
 }
 
@@ -647,6 +644,19 @@ FSimpleMulticastDelegate* AGSHeroCharacter::GetTargetCancelInteractionDelegate(U
 void AGSHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (LocationWidgetClass)
+	{
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Get the text block reference by name
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+		}
+	}
 
 	StartingFirstPersonMeshLocation = FirstPersonMesh->GetRelativeLocation();
 
@@ -755,80 +765,42 @@ void AGSHeroCharacter::TogglePerspective()
 
 void AGSHeroCharacter::SetPerspective(bool InIsFirstPersonPerspective)
 {
-	// If knocked down, always be in 3rd person. This check should remain.
+	// If knocked down, always be in 3rd person
 	if (IsValid(AbilitySystemComponent) && AbilitySystemComponent->HasMatchingGameplayTag(KnockedDownTag) && InIsFirstPersonPerspective)
 	{
-		// If we're trying to go to 1P but are knocked down, force 3P
-		InIsFirstPersonPerspective = false; 
-	}
-
-	bIsFirstPersonPerspective = InIsFirstPersonPerspective; // Set the member variable
-
-    FString Context = (GetNetMode() == NM_Client) ? TEXT("Client") : ((GetNetMode() == NM_ListenServer || GetNetMode() == NM_DedicatedServer) ? TEXT("Server") : TEXT("Standalone"));
-    UE_LOG(LogTemp, Log, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s. New Perspective: %s. CurrentWeapon: %s"),
-        *GetName(),
-        *Context,
-        bIsFirstPersonPerspective ? TEXT("First Person") : TEXT("Third Person"), // Use the updated bIsFirstPersonPerspective
-        GetCurrentWeapon() ? *GetCurrentWeapon()->GetName() : TEXT("NULL")
-    );
-
-	USkeletalMeshComponent* TPPMesh = GetMesh();
-
-	if (!FirstPersonMesh || !TPPMesh || !FirstPersonCamera || !ThirdPersonCamera)
-	{
-		UE_LOG(LogTemp, Error, TEXT("AGSHeroCharacter::SetPerspective - Crucial component (Mesh or Camera) is missing!"));
 		return;
 	}
 
-	// Handle mesh visibility based on perspective (OwnerNoSee and explicit Visibility)
-	if (bIsFirstPersonPerspective)
+	// Only change perspective for the locally controlled player. Simulated proxies should stay in third person.
+	// To swap cameras, deactivate current camera (defaults to ThirdPersonCamera), activate desired camera, and call PlayerController->SetViewTarget() on self
+	AGSPlayerController* PC = GetController<AGSPlayerController>();
+	if (PC && PC->IsLocalPlayerController())
 	{
-		TPPMesh->SetOwnerNoSee(true);
-		FirstPersonMesh->SetOwnerNoSee(false);
-		FirstPersonMesh->SetVisibility(true);
-		// TPPMesh visibility for others is true by default, SetOwnerNoSee hides it locally.
-        // Potentially adjust 3P mesh location for shadow as in original code:
-        TPPMesh->SetRelativeLocation(StartingThirdPersonMeshLocation + FVector(-120.0f, 0.0f, 0.0f));
-	}
-	else // Third Person Perspective
-	{
-		TPPMesh->SetOwnerNoSee(false);
-		FirstPersonMesh->SetOwnerNoSee(true);
-		FirstPersonMesh->SetVisibility(false);
-        TPPMesh->SetVisibility(true); // Ensure 3P mesh is visible
-        // Reset the third person mesh location as in original code:
-        TPPMesh->SetRelativeLocation(StartingThirdPersonMeshLocation);
-	}
-
-	// Camera Activation and View Target for locally controlled player
-	APlayerController* PC = GetController<APlayerController>(); // Use APlayerController for wider compatibility
-	if (PC && PC->IsLocalPlayerController()) // Check if it's the local player controller
-	{
-		if (bIsFirstPersonPerspective)
+		if (InIsFirstPersonPerspective)
 		{
-			if (ThirdPersonCamera) ThirdPersonCamera->Deactivate();
-			if (FirstPersonCamera) FirstPersonCamera->Activate();
+			ThirdPersonCamera->Deactivate();
+			FirstPersonCamera->Activate();
+			PC->SetViewTarget(this);
+
+			GetMesh()->SetVisibility(false, true);
+			FirstPersonMesh->SetVisibility(true, true);
+
+			// Move third person mesh back so that the shadow doesn't look disconnected
+			GetMesh()->SetRelativeLocation(StartingThirdPersonMeshLocation + FVector(-120.0f, 0.0f, 0.0f));
 		}
 		else
 		{
-			if (FirstPersonCamera) FirstPersonCamera->Deactivate();
-			if (ThirdPersonCamera) ThirdPersonCamera->Activate();
+			FirstPersonCamera->Deactivate();
+			ThirdPersonCamera->Activate();
+			PC->SetViewTarget(this);
+
+			FirstPersonMesh->SetVisibility(false, true);
+			GetMesh()->SetVisibility(true, true);
+
+			// Reset the third person mesh
+			GetMesh()->SetRelativeLocation(StartingThirdPersonMeshLocation);
 		}
-		PC->SetViewTarget(this); // Ensure view target is set to self
 	}
-	
-	// Refresh weapon if equipped - This was in the original, good to keep.
-	// The Equip function in AGSWeapon should handle its own 1P/3P mesh visibility.
-	AGSWeapon* CurrentWeaponPtr = GetCurrentWeapon();
-	if (CurrentWeaponPtr)
-	{
-        UE_LOG(LogTemp, Log, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s - Calling Equip() on %s"), *GetName(), *Context, *CurrentWeaponPtr->GetName());
-		CurrentWeaponPtr->Equip(); 
-	}
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s - CurrentWeapon is NULL, cannot call Equip."), *GetName(), *Context);
-    }
 }
 
 void AGSHeroCharacter::InitializeFloatingStatusBar()
@@ -894,30 +866,19 @@ void AGSHeroCharacter::OnRep_PlayerState()
 
 		// Set the AttributeSetBase for convenience attribute functions
 		AttributeSetBase = PS->GetAttributeSetBase();
-		
+
 		AmmoAttributeSet = PS->GetAmmoAttributeSet();
 
-		if (!bHasBeenInitialized && GetLocalRole() == ROLE_AutonomousProxy) // Only run init once on autonomous proxy
-		{
-			// If we handle players disconnecting and rejoining in the future, we'll have to change this so that posession from rejoining doesn't reset attributes.
-			// For now assume possession = spawn/respawn.
-			InitializeAttributes();
-			// AddStartupEffects(); // Typically server-only, but if client needs some...
-			// AddCharacterAbilities(); // Typically server-only
-			bHasBeenInitialized = true;
-			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::OnRep_PlayerState - First time initialization of attributes."));
-		}
-		else if (GetLocalRole() == ROLE_AutonomousProxy)
-		{
-			 UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::OnRep_PlayerState - Attributes already initialized, skipping full re-init."));
-		}
+		// If we handle players disconnecting and rejoining in the future, we'll have to change this so that posession from rejoining doesn't reset attributes.
+		// For now assume possession = spawn/respawn.
+		InitializeAttributes();
 
 		AGSPlayerController* PC = Cast<AGSPlayerController>(GetController());
 		if (PC)
 		{
 			PC->CreateHUD();
 		}
-		
+
 		if (CurrentWeapon)
 		{
 			// If current weapon repped before PlayerState, set tag on ASC
@@ -996,27 +957,12 @@ void AGSHeroCharacter::SpawnDefaultInventory()
 
 void AGSHeroCharacter::SetupStartupPerspective()
 {
-	// If player-controlled (not AI)
-	if (IsPlayerControlled())
+	APlayerController* PC = Cast<APlayerController>(GetController());
+
+	if (PC && PC->IsLocalController())
 	{
-		// For locally controlled player, determine initial perspective and apply it.
-		APlayerController* PC = GetController<APlayerController>();
-		if (PC && PC->IsLocalController())
-		{
-			SetPerspective(bStartInFirstPersonPerspective);
-		}
-		// For simulated proxies of players, they generally should always see the 3P mesh.
-		// SetPerspective with SetOwnerNoSee handles this for the local player's view.
-		// No special handling needed here for simulated proxies beyond what SetPerspective does if called.
-		// However, SetPerspective is primarily for the local player's camera and mesh setup.
-		// Simulated proxies will rely on replication for mesh visibility state if needed beyond default.
-	}
-	else // AI controlled
-	{
-		// AI usually doesn't have a first-person perspective and doesn't need camera setup like players.
-		SetPerspective(false); // Force AI to 3rd person setup for meshes
-		if (FirstPersonMesh) FirstPersonMesh->SetVisibility(false, true); // Explicitly hide 1P
-		if (GetMesh()) GetMesh()->SetVisibility(true, true); // Explicitly show 3P
+		bIsFirstPersonPerspective = bStartInFirstPersonPerspective;
+		SetPerspective(bIsFirstPersonPerspective);
 	}
 }
 
@@ -1082,7 +1028,7 @@ void AGSHeroCharacter::SetCurrentWeapon(AGSWeapon* NewWeapon, AGSWeapon* LastWea
 
 		NewWeapon->OnPrimaryClipAmmoChanged.AddDynamic(this, &AGSHeroCharacter::CurrentWeaponPrimaryClipAmmoChanged);
 		NewWeapon->OnSecondaryClipAmmoChanged.AddDynamic(this, &AGSHeroCharacter::CurrentWeaponSecondaryClipAmmoChanged);
-		
+
 		if (AbilitySystemComponent)
 		{
 			PrimaryReserveAmmoChangedDelegateHandle = AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGSAmmoAttributeSet::GetReserveAmmoAttributeFromTag(CurrentWeapon->PrimaryAmmoType)).AddUObject(this, &AGSHeroCharacter::CurrentWeaponPrimaryReserveAmmoChanged);
@@ -1122,7 +1068,7 @@ void AGSHeroCharacter::UnEquipWeapon(AGSWeapon* WeaponToUnEquip)
 			AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGSAmmoAttributeSet::GetReserveAmmoAttributeFromTag(WeaponToUnEquip->PrimaryAmmoType)).Remove(PrimaryReserveAmmoChangedDelegateHandle);
 			AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGSAmmoAttributeSet::GetReserveAmmoAttributeFromTag(WeaponToUnEquip->SecondaryAmmoType)).Remove(SecondaryReserveAmmoChangedDelegateHandle);
 		}
-		
+
 		WeaponToUnEquip->UnEquip();
 	}
 }
@@ -1252,4 +1198,102 @@ void AGSHeroCharacter::ClientSyncCurrentWeapon_Implementation(AGSWeapon* InWeapo
 bool AGSHeroCharacter::ClientSyncCurrentWeapon_Validate(AGSWeapon* InWeapon)
 {
 	return true;
+}
+
+void AGSHeroCharacter::ToggleMenu()
+{
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	if (!MenuInGameWidget && MenuInGameWidgetClass)
+	{
+		// Create the widget if it doesn't exist
+		MenuInGameWidget = CreateWidget<UUserWidget>(GetWorld(), MenuInGameWidgetClass);
+		if (MenuInGameWidget)
+		{
+			MenuInGameWidget->AddToViewport();
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Visible);
+
+			// Show cursor and enable input
+			PC->bShowMouseCursor = true;
+			PC->SetInputMode(FInputModeGameAndUI());
+		}
+	}
+	else if (MenuInGameWidget)
+	{
+		// Toggle visibility
+		if (MenuInGameWidget->IsVisible())
+		{
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Hide cursor and disable input
+			PC->bShowMouseCursor = false;
+			PC->SetInputMode(FInputModeGameOnly());
+		}
+		else
+		{
+			MenuInGameWidget->SetVisibility(ESlateVisibility::Visible);
+
+			// Show cursor and enable input
+			PC->bShowMouseCursor = true;
+			PC->SetInputMode(FInputModeGameAndUI());
+		}
+	}
+}
+
+void AGSHeroCharacter::ToggleLocationDisplay()
+{
+	bShowLocation = !bShowLocation;
+
+	if (LocationWidget)
+	{
+		if (bShowLocation)
+		{
+			// Show the widget and start updating coordinates
+			LocationWidget->SetVisibility(ESlateVisibility::Visible);
+
+			// Start the timer to update coordinates every 0.1 seconds
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &AGSHeroCharacter::UpdateLocationText, 0.1f, true);
+
+			// Update immediately
+			UpdateLocationText();
+		}
+		else
+		{
+			// Hide the widget and stop updating
+			LocationWidget->SetVisibility(ESlateVisibility::Hidden);
+
+			// Clear the timer
+			GetWorld()->GetTimerManager().ClearTimer(LocationUpdateTimer);
+		}
+	}
+	else if (bShowLocation && LocationWidgetClass)
+	{
+		// Create widget if it doesn't exist and we want to show it
+		LocationWidget = CreateWidget<UUserWidget>(GetWorld(), LocationWidgetClass);
+		if (LocationWidget)
+		{
+			LocationWidget->AddToViewport();
+			LocationText = Cast<UTextBlock>(LocationWidget->GetWidgetFromName(TEXT("Text_Location")));
+
+			// Start updating
+			GetWorld()->GetTimerManager().SetTimer(LocationUpdateTimer, this, &AGSHeroCharacter::UpdateLocationText, 0.1f, true);
+			UpdateLocationText();
+		}
+	}
+}
+
+void AGSHeroCharacter::UpdateLocationText()
+{
+	if (!LocationText)
+	{
+		return;
+	}
+
+	FVector Location = GetActorLocation();
+	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
+	LocationText->SetText(FText::FromString(LocationString));
 }

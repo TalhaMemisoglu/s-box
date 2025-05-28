@@ -48,7 +48,7 @@ UCLASS()
 class GASSHOOTER_API AGSHeroCharacter : public AGSCharacterBase, public IGSInteractable
 {
 	GENERATED_BODY()
-	
+
 public:
 	AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer);
 
@@ -140,6 +140,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GASShooter|Inventory")
 	int32 GetNumWeapons() const;
 
+	bool bASCInputBound;
 
 	/**
 	* Interactable interface
@@ -188,7 +189,7 @@ public:
 	*/
 	FSimpleMulticastDelegate* GetTargetCancelInteractionDelegate(UPrimitiveComponent* InteractionComponent) override;
 
-public:
+protected:
 	UPROPERTY(BlueprintReadOnly, Category = "GASShooter|GSHeroCharacter")
 	FVector StartingThirdPersonMeshLocation;
 
@@ -216,11 +217,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "GASShooter|GSHeroCharacter")
 	bool bWasInFirstPersonPerspectiveWhenKnockedDown;
 
-public:
-	bool bASCInputBound;
-	bool bHasBeenInitialized; // Flag to track if initial setup has been done
 
-protected:
 	// Set to true when we change the weapon predictively and flip it to false when the Server replicates to confirm.
 	// We use this if the Server refused a weapon change ability's activation to ask the Server to sync the client back up
 	// with the correct CurrentWeapon.
@@ -278,6 +275,33 @@ protected:
 	TSubclassOf<UGameplayEffect> DeathEffect;
 
 	FSimpleMulticastDelegate InteractionCanceledDelegate;
+
+	UFUNCTION()
+	void ToggleLocationDisplay();
+
+	void UpdateLocationText();
+
+	FTimerHandle LocationUpdateTimer;
+
+	bool bShowLocation;
+
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UUserWidget> LocationWidgetClass;
+
+	UPROPERTY()
+	UUserWidget* LocationWidget;
+
+	UPROPERTY()
+	class UTextBlock* LocationText;
+
+	UPROPERTY(EditAnywhere, Category = "UI")
+	TSubclassOf<UUserWidget> MenuInGameWidgetClass;
+
+	UPROPERTY()
+	UUserWidget* MenuInGameWidget;
+
+	UFUNCTION()
+	void ToggleMenu();
 
 	// Cache tags
 	FGameplayTag NoWeaponTag;
@@ -374,7 +398,7 @@ protected:
 	void OnRep_Inventory();
 
 	void OnAbilityActivationFailed(const UGameplayAbility* FailedAbility, const FGameplayTagContainer& FailTags);
-	
+
 	// The CurrentWeapon is only automatically replicated to simulated clients.
 	// The autonomous client can use this to request the proper CurrentWeapon from the server when it knows it may be
 	// out of sync with it from predictive client-side changes.
@@ -382,7 +406,7 @@ protected:
 	void ServerSyncCurrentWeapon();
 	void ServerSyncCurrentWeapon_Implementation();
 	bool ServerSyncCurrentWeapon_Validate();
-	
+
 	// The CurrentWeapon is only automatically replicated to simulated clients.
 	// Use this function to manually sync the autonomous client's CurrentWeapon when we're ready to.
 	// This allows us to predict weapon changes (changing weapons fast multiple times in a row so that the server doesn't
