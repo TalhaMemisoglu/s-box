@@ -25,6 +25,7 @@
 
 AGSHeroCharacter::AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
+	bHasBeenInitialized = false;
 	BaseTurnRate = 45.0f;
 	BaseLookUpRate = 45.0f;
 	bStartInFirstPersonPerspective = true;
@@ -142,13 +143,23 @@ void AGSHeroCharacter::PossessedBy(AController* NewController)
 
 		AmmoAttributeSet = PS->GetAmmoAttributeSet();
 
-		// If we handle players disconnecting and rejoining in the future, we'll have to change this so that possession from rejoining doesn't reset attributes.
-		// For now assume possession = spawn/respawn.
-		InitializeAttributes();
+		if (!bHasBeenInitialized)
+		{
+			// If we handle players disconnecting and rejoining in the future, we'll have to change this so that possession from rejoining doesn't reset attributes.
+			// For now assume possession = spawn/respawn.
+			InitializeAttributes();
+			AddStartupEffects();
+			AddCharacterAbilities(); // If this grants default items/ammo that should only happen once
+			bHasBeenInitialized = true;
+			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::PossessedBy - First time initialization of attributes and abilities."));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::PossessedBy - Attributes and abilities already initialized, skipping full re-init."));
+		}
 
-		AddStartupEffects();
-
-		AddCharacterAbilities();
+		// Refresh HUD, ASC actor info etc. even on re-possession
+		PS->GetAbilitySystemComponent()->InitAbilityActorInfo(PS, this);
 
 		AGSPlayerController* PC = Cast<AGSPlayerController>(GetController());
 		if (PC)
@@ -744,42 +755,80 @@ void AGSHeroCharacter::TogglePerspective()
 
 void AGSHeroCharacter::SetPerspective(bool InIsFirstPersonPerspective)
 {
-	// If knocked down, always be in 3rd person
+	// If knocked down, always be in 3rd person. This check should remain.
 	if (IsValid(AbilitySystemComponent) && AbilitySystemComponent->HasMatchingGameplayTag(KnockedDownTag) && InIsFirstPersonPerspective)
 	{
+		// If we're trying to go to 1P but are knocked down, force 3P
+		InIsFirstPersonPerspective = false; 
+	}
+
+	bIsFirstPersonPerspective = InIsFirstPersonPerspective; // Set the member variable
+
+    FString Context = (GetNetMode() == NM_Client) ? TEXT("Client") : ((GetNetMode() == NM_ListenServer || GetNetMode() == NM_DedicatedServer) ? TEXT("Server") : TEXT("Standalone"));
+    UE_LOG(LogTemp, Log, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s. New Perspective: %s. CurrentWeapon: %s"),
+        *GetName(),
+        *Context,
+        bIsFirstPersonPerspective ? TEXT("First Person") : TEXT("Third Person"), // Use the updated bIsFirstPersonPerspective
+        GetCurrentWeapon() ? *GetCurrentWeapon()->GetName() : TEXT("NULL")
+    );
+
+	USkeletalMeshComponent* TPPMesh = GetMesh();
+
+	if (!FirstPersonMesh || !TPPMesh || !FirstPersonCamera || !ThirdPersonCamera)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AGSHeroCharacter::SetPerspective - Crucial component (Mesh or Camera) is missing!"));
 		return;
 	}
 
-	// Only change perspective for the locally controlled player. Simulated proxies should stay in third person.
-	// To swap cameras, deactivate current camera (defaults to ThirdPersonCamera), activate desired camera, and call PlayerController->SetViewTarget() on self
-	AGSPlayerController* PC = GetController<AGSPlayerController>();
-	if (PC && PC->IsLocalPlayerController())
+	// Handle mesh visibility based on perspective (OwnerNoSee and explicit Visibility)
+	if (bIsFirstPersonPerspective)
 	{
-		if (InIsFirstPersonPerspective)
+		TPPMesh->SetOwnerNoSee(true);
+		FirstPersonMesh->SetOwnerNoSee(false);
+		FirstPersonMesh->SetVisibility(true);
+		// TPPMesh visibility for others is true by default, SetOwnerNoSee hides it locally.
+        // Potentially adjust 3P mesh location for shadow as in original code:
+        TPPMesh->SetRelativeLocation(StartingThirdPersonMeshLocation + FVector(-120.0f, 0.0f, 0.0f));
+	}
+	else // Third Person Perspective
+	{
+		TPPMesh->SetOwnerNoSee(false);
+		FirstPersonMesh->SetOwnerNoSee(true);
+		FirstPersonMesh->SetVisibility(false);
+        TPPMesh->SetVisibility(true); // Ensure 3P mesh is visible
+        // Reset the third person mesh location as in original code:
+        TPPMesh->SetRelativeLocation(StartingThirdPersonMeshLocation);
+	}
+
+	// Camera Activation and View Target for locally controlled player
+	APlayerController* PC = GetController<APlayerController>(); // Use APlayerController for wider compatibility
+	if (PC && PC->IsLocalPlayerController()) // Check if it's the local player controller
+	{
+		if (bIsFirstPersonPerspective)
 		{
-			ThirdPersonCamera->Deactivate();
-			FirstPersonCamera->Activate();
-			PC->SetViewTarget(this);
-
-			GetMesh()->SetVisibility(false, true);
-			FirstPersonMesh->SetVisibility(true, true);
-
-			// Move third person mesh back so that the shadow doesn't look disconnected
-			GetMesh()->SetRelativeLocation(StartingThirdPersonMeshLocation + FVector(-120.0f, 0.0f, 0.0f));
+			if (ThirdPersonCamera) ThirdPersonCamera->Deactivate();
+			if (FirstPersonCamera) FirstPersonCamera->Activate();
 		}
 		else
 		{
-			FirstPersonCamera->Deactivate();
-			ThirdPersonCamera->Activate();
-			PC->SetViewTarget(this);
-
-			FirstPersonMesh->SetVisibility(false, true);
-			GetMesh()->SetVisibility(true, true);
-
-			// Reset the third person mesh
-			GetMesh()->SetRelativeLocation(StartingThirdPersonMeshLocation);
+			if (FirstPersonCamera) FirstPersonCamera->Deactivate();
+			if (ThirdPersonCamera) ThirdPersonCamera->Activate();
 		}
+		PC->SetViewTarget(this); // Ensure view target is set to self
 	}
+	
+	// Refresh weapon if equipped - This was in the original, good to keep.
+	// The Equip function in AGSWeapon should handle its own 1P/3P mesh visibility.
+	AGSWeapon* CurrentWeaponPtr = GetCurrentWeapon();
+	if (CurrentWeaponPtr)
+	{
+        UE_LOG(LogTemp, Log, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s - Calling Equip() on %s"), *GetName(), *Context, *CurrentWeaponPtr->GetName());
+		CurrentWeaponPtr->Equip(); 
+	}
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::SetPerspective (%s) on %s - CurrentWeapon is NULL, cannot call Equip."), *GetName(), *Context);
+    }
 }
 
 void AGSHeroCharacter::InitializeFloatingStatusBar()
@@ -848,9 +897,20 @@ void AGSHeroCharacter::OnRep_PlayerState()
 		
 		AmmoAttributeSet = PS->GetAmmoAttributeSet();
 
-		// If we handle players disconnecting and rejoining in the future, we'll have to change this so that posession from rejoining doesn't reset attributes.
-		// For now assume possession = spawn/respawn.
-		InitializeAttributes();
+		if (!bHasBeenInitialized && GetLocalRole() == ROLE_AutonomousProxy) // Only run init once on autonomous proxy
+		{
+			// If we handle players disconnecting and rejoining in the future, we'll have to change this so that posession from rejoining doesn't reset attributes.
+			// For now assume possession = spawn/respawn.
+			InitializeAttributes();
+			// AddStartupEffects(); // Typically server-only, but if client needs some...
+			// AddCharacterAbilities(); // Typically server-only
+			bHasBeenInitialized = true;
+			UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::OnRep_PlayerState - First time initialization of attributes."));
+		}
+		else if (GetLocalRole() == ROLE_AutonomousProxy)
+		{
+			 UE_LOG(LogTemp, Warning, TEXT("AGSHeroCharacter::OnRep_PlayerState - Attributes already initialized, skipping full re-init."));
+		}
 
 		AGSPlayerController* PC = Cast<AGSPlayerController>(GetController());
 		if (PC)
@@ -936,12 +996,27 @@ void AGSHeroCharacter::SpawnDefaultInventory()
 
 void AGSHeroCharacter::SetupStartupPerspective()
 {
-	APlayerController* PC = Cast<APlayerController>(GetController());
-
-	if (PC && PC->IsLocalController())
+	// If player-controlled (not AI)
+	if (IsPlayerControlled())
 	{
-		bIsFirstPersonPerspective = bStartInFirstPersonPerspective;
-		SetPerspective(bIsFirstPersonPerspective);
+		// For locally controlled player, determine initial perspective and apply it.
+		APlayerController* PC = GetController<APlayerController>();
+		if (PC && PC->IsLocalController())
+		{
+			SetPerspective(bStartInFirstPersonPerspective);
+		}
+		// For simulated proxies of players, they generally should always see the 3P mesh.
+		// SetPerspective with SetOwnerNoSee handles this for the local player's view.
+		// No special handling needed here for simulated proxies beyond what SetPerspective does if called.
+		// However, SetPerspective is primarily for the local player's camera and mesh setup.
+		// Simulated proxies will rely on replication for mesh visibility state if needed beyond default.
+	}
+	else // AI controlled
+	{
+		// AI usually doesn't have a first-person perspective and doesn't need camera setup like players.
+		SetPerspective(false); // Force AI to 3rd person setup for meshes
+		if (FirstPersonMesh) FirstPersonMesh->SetVisibility(false, true); // Explicitly hide 1P
+		if (GetMesh()) GetMesh()->SetVisibility(true, true); // Explicitly show 3P
 	}
 }
 
