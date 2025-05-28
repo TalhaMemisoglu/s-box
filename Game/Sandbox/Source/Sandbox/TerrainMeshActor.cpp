@@ -115,7 +115,7 @@ void ATerrainMeshActor::Tick(float DeltaTime)
             float x, y;
             FVector Scale = GetActorScale();
             FVector Location = GetActorLocation();
-            float * floats = ((float*)(&FileContents.GetData()[i + 1]));
+            float * floats = ((float*)(&((char*)RawData)[i + 1]));
             x = ((floats[0] + MapSmootheningOffset) - 0.5f * MapWidthAbsolute) * MapGridSpacing * Scale.X + Location.X;
             y = ((floats[1] + MapSmootheningOffset) - 0.5f * MapHeightAbsolute) * MapGridSpacing * Scale.Y + Location.Y;
             GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::White, FString::Printf(TEXT("%c, %f, %f"), FileContents[i], x, y));
