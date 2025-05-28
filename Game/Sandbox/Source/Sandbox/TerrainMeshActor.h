@@ -51,6 +51,9 @@ public:
 	UPROPERTY(EditAnywhere, Category=Sekiller)
 	TSubclassOf<class AActor> Dikdortgen;
 
+	UPROPERTY(EditAnywhere, Category=Sekiller)
+	TSubclassOf<class AActor> Yuvarlak;
+
 	// Sets default values for this actor's properties
 	ATerrainMeshActor();
 

@@ -193,6 +193,14 @@ void UGSAT_WaitInteractableTarget::PerformTrace()
 
 	// Check player's perspective, could be 1P or 3P
 	AGSHeroCharacter* Hero = Cast<AGSHeroCharacter>(SourceActor);
+
+	// Prevent crash if AvatarActor is not a hero (e.g., when the player possesses a vehicle)
+	if (!Hero)
+	{
+		// No valid hero character to trace from – exit early
+		return;
+	}
+
 	if (Hero->IsInFirstPersonPerspective())
 	{
 		StartLocation = StartLocation1P;

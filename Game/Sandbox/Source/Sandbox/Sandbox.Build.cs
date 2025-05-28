@@ -10,6 +10,6 @@ public class Sandbox : ModuleRules
 
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "ProceduralMeshComponent", "UMG", "PhysXVehicles", "GASShooter" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "ProceduralMeshComponent", "UMG", "PhysXVehicles", "Slate", "SlateCore", "GameplayAbilities", "GASShooter" });
 	}
 }

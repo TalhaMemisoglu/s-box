@@ -22,9 +22,9 @@ ATerrainMeshActor::ATerrainMeshActor()
 void ATerrainMeshActor::BeginPlay()
 {
     Super::BeginPlay();
-    SetMapSize(100, 100, 15, 20.0f, 0.2f);
+    SetMapSize(100, 100, 15, 20.0f, 0.4f);
     UpdateTime = 0.0f;
-    GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(0, 0, 0), FRotator(), FActorSpawnParameters());
+    //GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(0, 0, 0), FRotator(), FActorSpawnParameters());
     if(GetLocalRole() == ROLE_Authority)
     {
         watcher = new FileWatcher();
@@ -110,6 +110,23 @@ void ATerrainMeshActor::Tick(float DeltaTime)
     TArray<uint8> FileContents;
     if(GetLocalRole() == ROLE_Authority && watcher->Update(FileContents)) {
         const float * RawData = (float*)FileContents.GetData();
+        
+        for(int32 i = MapWidth * MapHeight * sizeof(float); i < FileContents.Num() - sizeof(float) * 2; ++i) {
+            float x, y;
+            FVector Scale = GetActorScale();
+            FVector Location = GetActorLocation();
+            float * floats = ((float*)(&FileContents.GetData()[i + 1]));
+            x = ((floats[0] + MapSmootheningOffset) - 0.5f * MapWidthAbsolute) * MapGridSpacing * Scale.X + Location.X;
+            y = ((floats[1] + MapSmootheningOffset) - 0.5f * MapHeightAbsolute) * MapGridSpacing * Scale.Y + Location.Y;
+            GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::White, FString::Printf(TEXT("%c, %f, %f"), FileContents[i], x, y));
+            if(FileContents[i] == 0) {
+                GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(x, y, 0), FRotator(), FActorSpawnParameters());
+            }
+            else if(FileContents[i] == 0x10) {
+                GetWorld()->SpawnActor<AActor>(Yuvarlak, FVector(x, y, 0), FRotator(), FActorSpawnParameters());
+            }
+            i += sizeof(x) + sizeof(y);
+        }
 
         CompressedData.Reset(0);
         for(int32 i = 0; i < MapWidth * MapHeight; ++i) {

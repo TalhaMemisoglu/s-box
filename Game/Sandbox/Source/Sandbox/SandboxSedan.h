@@ -25,9 +25,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
 	USceneComponent* ExitPoint;
 
-	// Store the original player character
+	// Store the original player pawn (supports any character BP)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
-	ASandboxCharacter* StoredPlayerCharacter;
+	APawn* StoredPlayerCharacter;
 
 	// Store the original player controller
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
@@ -37,6 +37,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Vehicle")
 	bool bIsInCar;
 
+	// Cooldown timer to prevent immediate re-entry
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vehicle")
+	float ReEntryCooldownTime;
+
+	// Track when last exit occurred
+	float LastExitTime;
+
 public:
 	// Interface implementation
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction")
@@ -45,5 +52,14 @@ public:
 
 	// Handle exit input
 	UFUNCTION()
-	void OnExitVehicle();
+	void RequestExitVehicle(); // Client calls this
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_OnExitVehicle(); // Server executes this
+	void Server_OnExitVehicle_Implementation();
+	bool Server_OnExitVehicle_Validate();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_UpdateCharacterVisualsOnEnter(APawn* CharacterPawn, bool bEnteringVehicle);
+	void Multicast_UpdateCharacterVisualsOnEnter_Implementation(APawn* CharacterPawn, bool bEnteringVehicle);
 }; 

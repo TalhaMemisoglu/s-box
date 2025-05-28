@@ -143,46 +143,96 @@ void AGSWeapon::Equip()
 {
 	if (!OwningCharacter)
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s %s OwningCharacter is nullptr"), *FString(__FUNCTION__), *GetName());
+		UE_LOG(LogTemp, Error, TEXT("AGSWeapon::Equip (%s) - OwningCharacter is nullptr"), *GetName());
 		return;
 	}
+
+	// Log client/server context
+	FString Context = TEXT("");
+	if (OwningCharacter->GetNetMode() == NM_Client) Context = TEXT("Client");
+	else if (OwningCharacter->GetNetMode() == NM_ListenServer || OwningCharacter->GetNetMode() == NM_DedicatedServer) Context = TEXT("Server");
+	else Context = TEXT("Standalone");
+
+
+	UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) for %s on %s. IsInFirstPersonPerspective: %d"), 
+		*GetName(), 
+		*OwningCharacter->GetName(), 
+		*Context,
+		OwningCharacter->IsInFirstPersonPerspective());
 
 	FName AttachPoint = OwningCharacter->GetWeaponAttachPoint();
 
 	if (WeaponMesh1P)
 	{
-		WeaponMesh1P->AttachToComponent(OwningCharacter->GetFirstPersonMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale, AttachPoint);
-		WeaponMesh1P->SetRelativeLocation(WeaponMesh1PEquippedRelativeLocation);
-		WeaponMesh1P->SetRelativeRotation(FRotator(0, 0, -90.0f));
+		USkeletalMeshComponent* Char1PMesh = OwningCharacter->GetFirstPersonMesh();
+		if (!Char1PMesh)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AGSWeapon::Equip (%s) - OwningCharacter's FirstPersonMesh is NULL on %s! Cannot attach 1P Weapon Mesh."), *GetName(), *Context);
+		}
+		else
+		{
+			WeaponMesh1P->AttachToComponent(Char1PMesh, FAttachmentTransformRules::SnapToTargetIncludingScale, AttachPoint);
+			WeaponMesh1P->SetRelativeLocation(WeaponMesh1PEquippedRelativeLocation);
+			WeaponMesh1P->SetRelativeRotation(FRotator(0, 0, -90.0f)); // Example rotation
+		}
 
 		if (OwningCharacter->IsInFirstPersonPerspective())
 		{
 			WeaponMesh1P->SetVisibility(true, true);
+			UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) - Set WeaponMesh1P VISIBLE on %s."), *GetName(), *Context);
+
+			if (WeaponMesh1P->IsVisible())
+			{
+				UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) - CONFIRMED WeaponMesh1P IS VISIBLE on %s."), *GetName(), *Context);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("AGSWeapon::Equip (%s) - WARNING: WeaponMesh1P IS NOT VISIBLE on %s immediately after SetVisibility(true,true). MeshHiddenInGame: %d, ParentHiddenInGame: %d"), 
+					*GetName(), 
+					*Context,
+					WeaponMesh1P->bHiddenInGame,
+					(OwningCharacter && OwningCharacter->GetFirstPersonMesh() && OwningCharacter->GetFirstPersonMesh()->IsVisible()) ? 0 : 1 // Simpler check if parent is visible
+				);
+			}
 		}
 		else
 		{
 			WeaponMesh1P->SetVisibility(false, true);
+			UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) - Set WeaponMesh1P HIDDEN on %s."), *GetName(), *Context);
 		}
 	}
+	else { UE_LOG(LogTemp, Warning, TEXT("AGSWeapon::Equip (%s) - WeaponMesh1P is NULL on %s."), *GetName(), *Context); }
 
 	if (WeaponMesh3P)
 	{
-		WeaponMesh3P->AttachToComponent(OwningCharacter->GetThirdPersonMesh(), FAttachmentTransformRules::SnapToTargetIncludingScale, AttachPoint);
-		WeaponMesh3P->SetRelativeLocation(WeaponMesh3PEquippedRelativeLocation);
-		WeaponMesh3P->SetRelativeRotation(FRotator(0, 0, -90.0f));
+		USkeletalMeshComponent* Char3PMesh = OwningCharacter->GetThirdPersonMesh();
+		if(!Char3PMesh)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("AGSWeapon::Equip (%s) - OwningCharacter's ThirdPersonMesh is NULL on %s! Cannot attach 3P Weapon Mesh."), *GetName(), *Context);
+		}
+		else
+		{
+			WeaponMesh3P->AttachToComponent(Char3PMesh, FAttachmentTransformRules::SnapToTargetIncludingScale, AttachPoint);
+			WeaponMesh3P->SetRelativeLocation(WeaponMesh3PEquippedRelativeLocation);
+			WeaponMesh3P->SetRelativeRotation(FRotator(0, 0, -90.0f)); // Example rotation
+		}
+		
 		WeaponMesh3P->CastShadow = true;
 		WeaponMesh3P->bCastHiddenShadow = true;
 
 		if (OwningCharacter->IsInFirstPersonPerspective())
 		{
-			WeaponMesh3P->SetVisibility(true, true); // Without this, the weapon's 3p shadow doesn't show
-			WeaponMesh3P->SetVisibility(false, true);
+			WeaponMesh3P->SetVisibility(true, true); // So it can cast shadow
+			// Note: Character's SetPerspective then calls OwnerNoSee on this mesh if it's the local player
+			UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) - Set WeaponMesh3P ShadowMode VISIBLE on %s."), *GetName(), *Context);
 		}
 		else
 		{
 			WeaponMesh3P->SetVisibility(true, true);
+			UE_LOG(LogTemp, Log, TEXT("AGSWeapon::Equip (%s) - Set WeaponMesh3P VISIBLE on %s."), *GetName(), *Context);
 		}
 	}
+	else { UE_LOG(LogTemp, Warning, TEXT("AGSWeapon::Equip (%s) - WeaponMesh3P is NULL on %s."), *GetName(), *Context); }
 }
 
 void AGSWeapon::UnEquip()

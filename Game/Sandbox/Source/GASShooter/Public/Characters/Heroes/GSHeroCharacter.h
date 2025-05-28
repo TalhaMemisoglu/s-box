@@ -188,34 +188,7 @@ public:
 	*/
 	FSimpleMulticastDelegate* GetTargetCancelInteractionDelegate(UPrimitiveComponent* InteractionComponent) override;
 
-	UFUNCTION()
-	void ToggleLocationDisplay();
-
-	void UpdateLocationText();
-
-	FTimerHandle LocationUpdateTimer;
-
-	bool bShowLocation;
-
-	UPROPERTY(EditAnywhere, Category = "UI")
-	TSubclassOf<UUserWidget> LocationWidgetClass;
-
-	UPROPERTY()
-	UUserWidget* LocationWidget;
-
-	UPROPERTY()
-	class UTextBlock* LocationText;
-
-	UPROPERTY(EditAnywhere, Category = "UI")
-	TSubclassOf<UUserWidget> MenuInGameWidgetClass;
-
-	UPROPERTY()
-	UUserWidget* MenuInGameWidget;
-
-	UFUNCTION()
-	void ToggleMenu();
-
-protected:
+public:
 	UPROPERTY(BlueprintReadOnly, Category = "GASShooter|GSHeroCharacter")
 	FVector StartingThirdPersonMeshLocation;
 
@@ -243,8 +216,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "GASShooter|GSHeroCharacter")
 	bool bWasInFirstPersonPerspectiveWhenKnockedDown;
 
+public:
 	bool bASCInputBound;
+	bool bHasBeenInitialized; // Flag to track if initial setup has been done
 
+protected:
 	// Set to true when we change the weapon predictively and flip it to false when the Server replicates to confirm.
 	// We use this if the Server refused a weapon change ability's activation to ask the Server to sync the client back up
 	// with the correct CurrentWeapon.
