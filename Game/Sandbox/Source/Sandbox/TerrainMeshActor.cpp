@@ -119,11 +119,18 @@ void ATerrainMeshActor::Tick(float DeltaTime)
             x = ((floats[0] + MapSmootheningOffset) - 0.5f * MapWidthAbsolute) * MapGridSpacing * Scale.X + Location.X;
             y = ((floats[1] + MapSmootheningOffset) - 0.5f * MapHeightAbsolute) * MapGridSpacing * Scale.Y + Location.Y;
             GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::White, FString::Printf(TEXT("%c, %f, %f"), FileContents[i], x, y));
+            FVector Start(x, y, 20000.0f);
+            FVector End(x, y, -20000.0f);
+            FVector Pos(x, y, 0);
+            FHitResult Result;
+            if(GetWorld()->LineTraceSingleByChannel(Result, Start, End, ECC_PhysicsBody, FCollisionQueryParams())) {
+                Pos = Result.ImpactPoint + FVector(0, 0, 500.0f);
+            }
             if(FileContents[i] == 0) {
-                GetWorld()->SpawnActor<AActor>(Dikdortgen, FVector(x, y, 0), FRotator(), FActorSpawnParameters());
+                GetWorld()->SpawnActor<AActor>(Dikdortgen, Pos, FRotator(), FActorSpawnParameters());
             }
             else if(FileContents[i] == 0x10) {
-                GetWorld()->SpawnActor<AActor>(Yuvarlak, FVector(x, y, 0), FRotator(), FActorSpawnParameters());
+                GetWorld()->SpawnActor<AActor>(Yuvarlak, Pos, FRotator(), FActorSpawnParameters());
             }
             i += sizeof(x) + sizeof(y);
         }

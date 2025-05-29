@@ -50,6 +50,8 @@ class GASSHOOTER_API AGSHeroCharacter : public AGSCharacterBase, public IGSInter
 	GENERATED_BODY()
 
 public:
+    UFUNCTION(
+    void BecomeSpectator();
 	AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer);
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "GASShooter|GSHeroCharacter")
