@@ -156,7 +156,7 @@ void ATerrainMeshActor::SendMapData_Implementation(float Time, const TArray<int8
     UpdateTime = Time;
     PreviousHeightMap = TargetHeightMap;
 
-    //TargetHeightMap.SetNum(Data.Num(), false);
+    TargetHeightMap.SetNum(Data.Num(), false);
     for (int32 i = 0; i < Data.Num(); ++i)
     {
         TargetHeightMap[i] = 300.0f + 4.0f * Data[i];
