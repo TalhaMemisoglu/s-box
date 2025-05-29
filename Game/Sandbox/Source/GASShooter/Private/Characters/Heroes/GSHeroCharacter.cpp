@@ -1347,3 +1347,12 @@ void AGSHeroCharacter::Client_TogglePerspectiveTwice_Implementation()
 		0.05f,
 		false);
 }
+
+void AGSHeroCharacter::BecomeSpectator_Implementation() {
+	AGASShooterGameModeBase* GM = Cast<AGASShooterGameModeBase>(GetWorld()->GetAuthGameMode());
+
+	if (GM)
+	{
+		GM->MakeSpectator(GetController());
+	}
+}

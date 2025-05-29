@@ -50,9 +50,10 @@ class GASSHOOTER_API AGSHeroCharacter : public AGSCharacterBase, public IGSInter
 	GENERATED_BODY()
 
 public:
-    UFUNCTION(
-    void BecomeSpectator();
 	AGSHeroCharacter(const class FObjectInitializer& ObjectInitializer);
+
+    UFUNCTION(BlueprintCallable, Server, Reliable)
+    void BecomeSpectator();
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "GASShooter|GSHeroCharacter")
 	bool bStartInFirstPersonPerspective;

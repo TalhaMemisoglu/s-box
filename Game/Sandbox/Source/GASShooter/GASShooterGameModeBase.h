@@ -19,6 +19,8 @@ public:
 
 	void HeroDied(AController* Controller);
 
+	void MakeSpectator(AController* Controller);
+
 protected:
 	float RespawnDelay;
 

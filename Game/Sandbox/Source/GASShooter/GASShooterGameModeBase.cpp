@@ -44,6 +44,22 @@ void AGASShooterGameModeBase::HeroDied(AController* Controller)
 	}
 }
 
+void AGASShooterGameModeBase::MakeSpectator(AController* Controller)
+{
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	ASpectatorPawn* SpectatorPawn = GetWorld()->SpawnActor<ASpectatorPawn>(SpectatorClass, Controller->GetPawn()->GetActorTransform(), SpawnParameters);
+
+    AGSHeroCharacter * Controlling = Cast<AGSHeroCharacter>(Controller->GetPawn());
+
+	Controller->UnPossess();
+	Controller->Possess(SpectatorPawn);
+
+    if(Controlling) {
+        Controlling->Destroy();
+    }
+}
+
 void AGASShooterGameModeBase::BeginPlay()
 {
 	Super::BeginPlay();
