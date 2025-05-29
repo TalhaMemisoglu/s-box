@@ -171,4 +171,7 @@ protected:
 	virtual void SetMana(float Mana);
 	virtual void SetStamina(float Stamina);
 	virtual void SetShield(float Shield);
+
+	// Ensures default attribute GE is only applied once; prevents ammo reserve reset on vehicle re-possession.
+	bool bHasInitializedAttributes = false;
 };

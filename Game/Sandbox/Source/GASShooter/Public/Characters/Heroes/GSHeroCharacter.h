@@ -415,4 +415,8 @@ protected:
 	void ClientSyncCurrentWeapon(AGSWeapon* InWeapon);
 	void ClientSyncCurrentWeapon_Implementation(AGSWeapon* InWeapon);
 	bool ClientSyncCurrentWeapon_Validate(AGSWeapon* InWeapon);
+
+public:
+	UFUNCTION(Client, Reliable)
+	void Client_TogglePerspectiveTwice();
 };

@@ -261,6 +261,10 @@ void AGSCharacterBase::AddCharacterAbilities()
 
 void AGSCharacterBase::InitializeAttributes()
 {
+	if (bHasInitializedAttributes)
+	{
+		return; // Already applied once
+	}
 	if (!IsValid(AbilitySystemComponent))
 	{
 		return;
@@ -281,6 +285,8 @@ void AGSCharacterBase::InitializeAttributes()
 	{
 		FActiveGameplayEffectHandle ActiveGEHandle = AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*NewHandle.Data.Get());
 	}
+
+	bHasInitializedAttributes = true;
 }
 
 void AGSCharacterBase::AddStartupEffects()

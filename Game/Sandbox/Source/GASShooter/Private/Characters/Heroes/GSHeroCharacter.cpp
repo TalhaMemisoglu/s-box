@@ -800,6 +800,42 @@ void AGSHeroCharacter::SetPerspective(bool InIsFirstPersonPerspective)
 			// Reset the third person mesh
 			GetMesh()->SetRelativeLocation(StartingThirdPersonMeshLocation);
 		}
+
+		// Update weapon mesh visibility to match new perspective without re-equipping
+		if (CurrentWeapon)
+		{
+			USkeletalMeshComponent* WeaponMesh1P = CurrentWeapon->GetWeaponMesh1P();
+			USkeletalMeshComponent* WeaponMesh3P = CurrentWeapon->GetWeaponMesh3P();
+
+			if (InIsFirstPersonPerspective)
+			{
+				// First person: Show 1P weapon, hide 3P weapon for local player
+				if (WeaponMesh1P)
+				{
+					WeaponMesh1P->SetVisibility(true, true);
+					UE_LOG(LogTemp, Warning, TEXT("SetPerspective: Set WeaponMesh1P visible for first person"));
+				}
+				if (WeaponMesh3P)
+				{
+					WeaponMesh3P->SetVisibility(true, true); // Keep visible for shadow casting
+					UE_LOG(LogTemp, Warning, TEXT("SetPerspective: Set WeaponMesh3P shadow-visible for first person"));
+				}
+			}
+			else
+			{
+				// Third person: Hide 1P weapon, show 3P weapon
+				if (WeaponMesh1P)
+				{
+					WeaponMesh1P->SetVisibility(false, true);
+					UE_LOG(LogTemp, Warning, TEXT("SetPerspective: Set WeaponMesh1P hidden for third person"));
+				}
+				if (WeaponMesh3P)
+				{
+					WeaponMesh3P->SetVisibility(true, true);
+					UE_LOG(LogTemp, Warning, TEXT("SetPerspective: Set WeaponMesh3P visible for third person"));
+				}
+			}
+		}
 	}
 }
 
@@ -1296,4 +1332,18 @@ void AGSHeroCharacter::UpdateLocationText()
 	FVector Location = GetActorLocation();
 	FString LocationString = FString::Printf(TEXT("X: %.1f\nY: %.1f\nZ: %.1f"), Location.X, Location.Y, Location.Z);
 	LocationText->SetText(FText::FromString(LocationString));
+}
+
+void AGSHeroCharacter::Client_TogglePerspectiveTwice_Implementation()
+{
+	// Simulate the player quickly pressing the TogglePerspective key twice.
+	TogglePerspective();
+
+	// Execute second toggle shortly after to allow state to settle.
+	FTimerHandle TempHandle;
+	GetWorldTimerManager().SetTimer(
+		TempHandle,
+		[this]() { TogglePerspective(); },
+		0.05f,
+		false);
 }
