@@ -10,6 +10,7 @@
 #include "AbilitySystemComponent.h"
 #include "GASShooter/Public/Characters/Heroes/GSHeroCharacter.h"
 #include "GASShooter/Public/Weapons/GSWeapon.h"
+#include "GASShooter/Public/Characters/Abilities/AttributeSets/GSAmmoAttributeSet.h"
 #include "Components/SkeletalMeshComponent.h"
 
 ASandboxSedan::ASandboxSedan()
@@ -187,6 +188,15 @@ void ASandboxSedan::Server_OnExitVehicle_Implementation()
 	ExitTransform.SetLocation(ExitLocation);
 
 	// Store references before clearing them
+	int32 SavedPrimaryReserveAmmo = 0;
+	int32 SavedSecondaryReserveAmmo = 0;
+	AGSHeroCharacter* AmmoHero = Cast<AGSHeroCharacter>(StoredPlayerCharacter);
+	if (AmmoHero)
+	{
+		SavedPrimaryReserveAmmo = AmmoHero->GetPrimaryReserveAmmo();
+		SavedSecondaryReserveAmmo = AmmoHero->GetSecondaryReserveAmmo();
+	}
+
 	APawn* CharacterToRestore = StoredPlayerCharacter;
 	APlayerController* ControllerToRestore = StoredPlayerController;
 
@@ -232,10 +242,41 @@ void ASandboxSedan::Server_OnExitVehicle_Implementation()
 				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan: Re-enabled 3P mesh shadow for %s"), *RestoredHero->GetName());
 			}
 
+			// Call Multicast to restore weapon visuals on server and all clients AFTER restoring the character
+			Multicast_UpdateCharacterVisualsOnEnter(RestoredHero, false);
+
 			// The character's PossessedBy -> SetupStartupPerspective -> SetPerspective flow
             // should handle re-equipping the weapon and setting its visibility correctly.
             // If GetCurrentWeapon() exists, SetPerspective will call Equip() on it.
 			UE_LOG(LogTemp, Log, TEXT("ASandboxSedan: Character's SetPerspective will handle weapon re-equip for %s"), *RestoredHero->GetName());
+
+			// Simulate the player pressing TogglePerspective twice to refresh camera/weapon state on client
+			RestoredHero->Client_TogglePerspectiveTwice();
+
+			// Restore saved reserve ammo counts
+			if (SavedPrimaryReserveAmmo > 0 || SavedSecondaryReserveAmmo > 0)
+			{
+				UAbilitySystemComponent* ASC = Cast<UAbilitySystemComponent>(RestoredHero->GetAbilitySystemComponent());
+				if (ASC && RestoredHero->GetCurrentWeapon())
+				{
+					if (RestoredHero->GetCurrentWeapon()->PrimaryAmmoType.IsValid())
+					{
+						FGameplayAttribute Attr = UGSAmmoAttributeSet::GetReserveAmmoAttributeFromTag(RestoredHero->GetCurrentWeapon()->PrimaryAmmoType);
+						if (Attr.IsValid())
+						{
+							ASC->SetNumericAttributeBase(Attr, SavedPrimaryReserveAmmo);
+						}
+					}
+					if (RestoredHero->GetCurrentWeapon()->SecondaryAmmoType.IsValid())
+					{
+						FGameplayAttribute Attr2 = UGSAmmoAttributeSet::GetReserveAmmoAttributeFromTag(RestoredHero->GetCurrentWeapon()->SecondaryAmmoType);
+						if (Attr2.IsValid())
+						{
+							ASC->SetNumericAttributeBase(Attr2, SavedSecondaryReserveAmmo);
+						}
+					}
+				}
+			}
 		}
 
 		// Re-enable input on the character
@@ -295,5 +336,40 @@ void ASandboxSedan::Multicast_UpdateCharacterVisualsOnEnter_Implementation(APawn
 			UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast %s): Disabled 3P mesh shadow for %s"), GetLocalRole() == ROLE_Authority ? TEXT("Server") : TEXT("Client"), *HeroCharacter->GetName());
 		}
 	}
-	// Exiting visuals (shadows, weapon re-equip) are handled by the server-driven repossession and SetPerspective logic.
+	else // Player is exiting
+	{
+		// Re-equip current weapon to restore its meshes and handle state.
+		if (HeroCharacter->IsLocallyControlled() || GetLocalRole() == ROLE_Authority) // Check if we are server or the owning client
+		{
+			if (AGSWeapon* CurrentWeapon = HeroCharacter->GetCurrentWeapon())
+			{
+				CurrentWeapon->Equip(); // Equip should handle showing meshes with correct perspective
+				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast %s): Re-equipped weapon for %s"), GetLocalRole() == ROLE_Authority ? TEXT("Server") : TEXT("Client"), *HeroCharacter->GetName());
+			}
+		}
+		else if (HeroCharacter->GetLocalRole() == ENetRole::ROLE_SimulatedProxy)
+		{
+		    // For simulated proxies, we just want to ensure the weapon's meshes are visible again.
+            if (AGSWeapon* CurrentWeapon = HeroCharacter->GetCurrentWeapon())
+            { 
+                // Access weapon meshes directly and show them appropriately
+                if(USkeletalMeshComponent* WeaponMesh1P = CurrentWeapon->GetWeaponMesh1P()) 
+                { 
+                    WeaponMesh1P->SetVisibility(HeroCharacter->IsInFirstPersonPerspective(), true); 
+                }
+                if(USkeletalMeshComponent* WeaponMesh3P = CurrentWeapon->GetWeaponMesh3P()) 
+                { 
+                    WeaponMesh3P->SetVisibility(true, true); // 3P mesh should be visible for 3rd person and shadow in 1st person
+                }
+				UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast SimulatedProxy): Restored weapon meshes for %s"), *HeroCharacter->GetName());
+            }
+		}
+
+		// Restore character's main mesh shadow casting
+		if (USkeletalMeshComponent* CharacterMesh3P = HeroCharacter->GetMesh())
+		{
+			CharacterMesh3P->SetCastShadow(true);
+			UE_LOG(LogTemp, Log, TEXT("ASandboxSedan (Multicast %s): Re-enabled 3P mesh shadow for %s"), GetLocalRole() == ROLE_Authority ? TEXT("Server") : TEXT("Client"), *HeroCharacter->GetName());
+		}
+	}
 } 
